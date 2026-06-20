@@ -41,8 +41,12 @@ export default function ProfileClient({
   const deptName = (id: string) => departments.find((d) => d.id === id)?.name || '—';
 
   const [form, setForm] = useState({
-    to_operation_id: '', to_project_id: '', reason: '', target_join_date: '',
+    to_operation_id: employee.operation_id || '', to_project_id: '', reason: '', target_join_date: '',
   });
+
+  const isCrossCountry = form.to_operation_id !== employee.operation_id;
+  const projectsForTransfer = projects.filter((p) => p.operation_id === form.to_operation_id && p.id !== employee.current_project_id);
+  const noChangeSelected = !isCrossCountry && (!form.to_project_id || form.to_project_id === (employee.current_project_id || ''));
 
   const initiateTransfer = async () => {
     const transferId = `TRF-${Date.now().toString().slice(-6)}`;
@@ -99,7 +103,6 @@ export default function ProfileClient({
   };
 
   const allChecklistDone = activeTransfer?.checklist?.every((c: any) => c.status === 'completed');
-  const projectsForTransfer = projects.filter((p) => p.operation_id === form.to_operation_id);
 
   return (
     <div>
@@ -126,7 +129,7 @@ export default function ProfileClient({
           </div>
 
           {!activeTransfer && (
-            <button onClick={() => setTransferOpen(true)} className="w-full mt-5 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">
+            <button onClick={() => { setForm({ to_operation_id: employee.operation_id || '', to_project_id: '', reason: '', target_join_date: '' }); setTransferOpen(true); }} className="w-full mt-5 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">
               <ArrowRight size={14} /> Initiate Transfer
             </button>
           )}
@@ -214,17 +217,18 @@ export default function ProfileClient({
                 {employee.projects && ` · ${employee.projects.project_code} ${employee.projects.project_name}`}
               </p>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Transfer To Country</label>
+                <label className="text-sm font-medium text-slate-700">Destination Country</label>
                 <select value={form.to_operation_id} onChange={(e) => setForm({ ...form, to_operation_id: e.target.value, to_project_id: '' })} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="">Select destination…</option>
-                  {operations.filter((o) => o.id !== employee.operation_id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  {operations.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}{o.id === employee.operation_id ? ' (current — pick this for a project-only move)' : ''}</option>
+                  ))}
                 </select>
               </div>
-              {form.to_operation_id && projectsForTransfer.length > 0 && (
+              {projectsForTransfer.length > 0 && (
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">Destination Project (optional)</label>
+                  <label className="text-sm font-medium text-slate-700">Destination Project {isCrossCountry ? '(optional)' : ''}</label>
                   <select value={form.to_project_id} onChange={(e) => setForm({ ...form, to_project_id: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value="">No specific project</option>
+                    <option value="">{isCrossCountry ? 'No specific project' : 'Select a project…'}</option>
                     {projectsForTransfer.map((p) => <option key={p.id} value={p.id}>{p.project_code} — {p.project_name}</option>)}
                   </select>
                 </div>
@@ -237,14 +241,21 @@ export default function ProfileClient({
                 <label className="text-sm font-medium text-slate-700">Reason</label>
                 <textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} rows={2} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="Business need, project requirement…" />
               </div>
-              <p className="text-xs text-slate-400">
-                This creates a standard checklist (Medical, Biometric, Skill Test, Visa Transfer, Exit/Entry Clearance).
-                The employee only moves to the new country once every step is marked complete.
-              </p>
+              {noChangeSelected ? (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  Select a different country, or a different project within the current country, to start a transfer.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  {isCrossCountry
+                    ? 'Cross-country move — full checklist applies (Medical, Biometric, Skill Test, Visa Transfer, Exit/Entry Clearance).'
+                    : 'Same-country project move — a lighter checklist applies (Skill Test, Exit/Entry Clearance). The employee only moves once every step is ticked.'}
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
               <button onClick={() => setTransferOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
-              <button onClick={initiateTransfer} disabled={!form.to_operation_id} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50">
+              <button onClick={initiateTransfer} disabled={noChangeSelected} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 <Plus size={14} /> Start Transfer
               </button>
             </div>

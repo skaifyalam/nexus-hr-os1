@@ -38,6 +38,8 @@ uploaded. Now let's go step by step.
 11. Open `supabase/03_multi_country_operations.sql`, copy all its text, paste it in, click **Run**.
 12. Click **New Query** one final time.
 13. Open `supabase/04_operations_management_policies.sql`, copy all its text, paste it in, click **Run**.
+14. Click **New Query** once more.
+15. Open `supabase/05_smart_transfer_checklist.sql`, copy all its text, paste it in, click **Run**.
 
 You have now created your entire database: employees, countries, projects,
 recruitment, leave, performance, and the transfer-tracking system — all in one go.
@@ -194,7 +196,8 @@ already country- and project-aware from day one.
   set in Vercel, then in Vercel click **Deployments** → **Redeploy**.
 - **You're not Super Admin after signup** → Supabase → Table Editor →
   `profiles` table → find your row → change `role` to `super_admin` manually.
-- **Page shows an error after pasting SQL** → make sure you ran the three
+- **Page shows an error after pasting SQL** → make sure you ran all five
   SQL files in the exact order: `schema.sql`, then `02_auth_and_rbac.sql`,
-  then `03_multi_country_operations.sql`. Running them out of order will fail
+  then `03_multi_country_operations.sql`, then `04_operations_management_policies.sql`,
+  then `05_smart_transfer_checklist.sql`. Running them out of order will fail
   because later files depend on tables created in earlier ones.
