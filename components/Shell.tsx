@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  LayoutDashboard, Users, Briefcase, Calendar, Shield, User, LogOut, Globe,
+  LayoutDashboard, Users, Briefcase, GitBranch, Building2, User, LogOut, Globe,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -10,8 +10,6 @@ const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/employees', label: 'Employees', icon: Users },
   { href: '/requisitions', label: 'Requisitions', icon: Briefcase },
-  { href: '/leaves', label: 'Leave', icon: Calendar },
-  { href: '/compliance', label: 'Compliance', icon: Shield },
 ];
 
 const ADMIN_NAV = [
@@ -68,6 +66,28 @@ export default function Shell({
               <span className="text-xs font-medium">{item.label}</span>
             </Link>
           ))}
+
+          {profile?.role === 'agency_user' ? (
+            <Link
+              href="/agency"
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
+                current === '/agency' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Building2 size={14} />
+              <span className="text-xs font-medium">Agency Pipeline</span>
+            </Link>
+          ) : (
+            <Link
+              href="/recruitment"
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
+                current === '/recruitment' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <GitBranch size={14} />
+              <span className="text-xs font-medium">Recruitment Pipeline</span>
+            </Link>
+          )}
 
           {profile?.role && ['super_admin', 'hr_director'].includes(profile.role) && (
             <>

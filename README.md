@@ -40,6 +40,8 @@ uploaded. Now let's go step by step.
 13. Open `supabase/04_operations_management_policies.sql`, copy all its text, paste it in, click **Run**.
 14. Click **New Query** once more.
 15. Open `supabase/05_smart_transfer_checklist.sql`, copy all its text, paste it in, click **Run**.
+16. Click **New Query** one final time.
+17. Open `supabase/06_recruitment_engine.sql`, copy all its text, paste it in, click **Run**.
 
 You have now created your entire database: employees, countries, projects,
 recruitment, leave, performance, and the transfer-tracking system — all in one go.
@@ -116,26 +118,49 @@ whoever signs up first. You don't need to set anything manually.
 
 ## What's Working Right Now
 
+**Phase 1 — Core HR**
 - Real login, real database, nothing fake or hardcoded
 - Employee Master: add, edit, delete — permanently saved
 - Excel bulk import with AI-suggested column matching
-- Downloadable Excel template
-- **Multi-country structure**: Saudi Arabia and Kuwait are already set up as
-  separate operations, with sample KSA projects S.022 Fadhili and S.013 Marjan
-- **Country-based access control**: built at the database level. Once you
-  invite other HR staff and assign them to a single country (instructions
-  below), they will only ever be able to see that country's employees — not
-  because the app hides it, but because the database itself won't return it.
-  You as Super Admin always see everything.
-- **Employee Profile page** (click the eye icon next to any employee): shows
-  their current country, project, department, salary — and a full timeline
-  of everything that has ever changed about them.
-- **Transfer tracking**: click "Initiate Transfer" on an employee's profile to
-  move them between countries or projects. This creates a checklist (Medical,
-  Biometric, Skill Test, Visa Transfer, Exit/Entry Clearance). The employee
-  only actually moves once every checklist item is ticked — and the moment
-  they do, it's permanently recorded in their history automatically.
-- Audit log recording every create/edit/delete/import in the database
+- Multi-country structure with database-level access control
+- Employee Profile with full history timeline
+- Transfer tracking (cross-country and same-country project moves) with checklist
+- Countries & Projects management screen (Admin)
+- Audit log recording every create/edit/delete/import
+
+**Phase 2 — Recruitment Engine**
+- Manpower Requisitions: real CRUD, country-aware, AI job description generator
+- Recruitment Pipeline (Company HR view): Kanban across all 13 real GCC mobilization
+  stages — Selection → Offer Issued → Offer Accepted → Visa Pending → Visa Allocated
+  → Medical → Biometric → Skill Test → Visa Stamping (ECR/ECNR) → Visa Stamped →
+  Ticket Booked → Mobilized → Onboarded
+- Agency Pipeline: a separate portal for overseas agencies, automatically restricted
+  to only their own candidates — they cannot see another agency's people, or
+  candidates outside their access, even by guessing a link
+- Candidate Profile: document checklist (CV, Passport, Medical, Police Clearance,
+  Visa), full mobilization history timeline (auto-logged, same philosophy as
+  employee transfers), and a two-way communication log between Agency and Company HR
+- Tracked throughout by Candidate ID and Passport Number, exactly as specified
+
+## A Correction From Earlier
+
+The sidebar previously showed "Leave" and "Compliance" links — these were
+placeholders that didn't actually have real pages behind them yet (an oversight
+on my part). I've removed them from the menu for now rather than leave broken
+links. They'll return, fully real, in a later phase — just wanted to be upfront
+that nothing was secretly broken on your end.
+
+## How to Set Up an Agency
+
+1. Have the agency contact sign up normally on your live app (they'll default
+   to "employee" role, seeing nothing yet)
+2. In Supabase → **Table Editor** → `agencies` table → add a new row with
+   their agency's name (or use the sample "Gulf Manpower Sourcing" row already there)
+3. In Supabase → **Table Editor** → `profiles` table → find their row →
+   set `role` to `agency_user` and `agency_id` to the agency's row ID (copy
+   it from the `agencies` table)
+4. They refresh the app — they now see only their own agency's candidates,
+   automatically, in the "Agency Pipeline" screen
 
 ## Managing Countries & Projects (No SQL — It's a Real Screen Now)
 
@@ -173,31 +198,30 @@ this is the real, working mechanism underneath it.)
 
 ## What's NOT Built Yet (by design — see roadmap)
 
-- Recruitment pipeline / mobilization tracking (Phase 2) — the database is
-  already country-ready for this (`requisitions` and `candidates` tables
-  have an `operation_id` column waiting)
+- Leave Management, Performance Reviews, Disciplinary, Exit Management (Phase 2.5)
 - Company Brain / document AI (Phase 3)
 - AI Report Studio (Phase 4)
 - AI Boardroom (Phase 5)
 - Finance module (Phase 6)
 
-Tell me once Phase 1 is live and you've confirmed employees save for real,
-Excel import works, and the transfer flow makes sense to you. Then I'll build
-Phase 2 — the Recruitment Engine with your exact GCC mobilization stages,
-already country- and project-aware from day one.
+Tell me once this is live and you've tested adding a requisition, moving a
+candidate through a few stages, and trying the Agency portal with a second
+test account. Then I'll build the next phase.
 
 ---
 
 ## If Something Goes Wrong
 
-- **Can't log in / "Invalid API key"** → double-check you copied the full
-  Supabase anon key with no extra spaces, in Vercel's Environment Variables.
-- **AI import says "not configured"** → check `GEMINI_API_KEY` is correctly
+- **Can't log in / "Invalid path specified in request URL"** → almost always
+  means `NEXT_PUBLIC_SUPABASE_URL` has something extra after `.supabase.co`
+  (like `/rest/v1`) or is missing/blank. It should be exactly the bare domain,
+  nothing after `.co`.
+- **AI features say "not configured"** → check `GEMINI_API_KEY` is correctly
   set in Vercel, then in Vercel click **Deployments** → **Redeploy**.
 - **You're not Super Admin after signup** → Supabase → Table Editor →
   `profiles` table → find your row → change `role` to `super_admin` manually.
-- **Page shows an error after pasting SQL** → make sure you ran all five
-  SQL files in the exact order: `schema.sql`, then `02_auth_and_rbac.sql`,
-  then `03_multi_country_operations.sql`, then `04_operations_management_policies.sql`,
-  then `05_smart_transfer_checklist.sql`. Running them out of order will fail
-  because later files depend on tables created in earlier ones.
+- **Page shows an error after pasting SQL** → make sure you ran all six
+  SQL files in the exact order: `schema.sql`, `02_auth_and_rbac.sql`,
+  `03_multi_country_operations.sql`, `04_operations_management_policies.sql`,
+  `05_smart_transfer_checklist.sql`, `06_recruitment_engine.sql`. Running them
+  out of order will fail because later files depend on tables created earlier.
