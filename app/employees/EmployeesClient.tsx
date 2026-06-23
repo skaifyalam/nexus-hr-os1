@@ -2,6 +2,7 @@
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { Plus, Search, Trash2, Edit2, Eye, Upload, Sparkles, Loader, X, Check } from 'lucide-react';
+import { generateId } from '@/lib/generateId';
 import * as XLSX from 'xlsx';
 import { createClient } from '@/lib/supabase/client';
 
@@ -69,8 +70,10 @@ export default function EmployeesClient({
         await log('update', editing, form);
       }
     } else {
-      const newId = `EMP-${String(employees.length + 1).padStart(3, '0')}`;
-      const { data, error } = await supabase.from('employees').insert({ ...payload, employee_id: form.employee_id || newId })
+      const opCode = operations.find((o) => o.id === form.operation_id)?.country_code || '';
+      const deptCode = departments.find((d) => d.id === form.department_id)?.code || '';
+      const newId = form.employee_id || await generateId('employee', opCode, deptCode);
+      const { data, error } = await supabase.from('employees').insert({ ...payload, employee_id: newId })
         .select('*, departments(name), operations(name, country_code), projects(project_code, project_name)').single();
       if (!error && data) {
         setEmployees((p) => [data, ...p]);

@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Plus, Trash2, Sparkles, Loader, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
+import { generateId } from '@/lib/generateId';
+
 const STATUS_CLS: Record<string, string> = {
   open: 'bg-blue-50 text-blue-700 border border-blue-200',
   in_progress: 'bg-violet-50 text-violet-700 border border-violet-200',
@@ -41,7 +43,8 @@ export default function RequisitionsClient({
   };
 
   const save = async () => {
-    const newId = `REQ-${String(requisitions.length + 1).padStart(3, '0')}`;
+    const opCode = operations.find((o) => o.id === form.operation_id)?.country_code || '';
+    const newId = await generateId('requisition', opCode);
     const { data, error } = await supabase
       .from('requisitions')
       .insert({ ...form, requisition_id: newId, headcount: Number(form.headcount), budget: Number(form.budget) || null })

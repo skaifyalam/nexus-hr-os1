@@ -41,7 +41,9 @@ uploaded. Now let's go step by step.
 14. Click **New Query** once more.
 15. Open `supabase/05_smart_transfer_checklist.sql`, copy all its text, paste it in, click **Run**.
 16. Click **New Query** one final time.
-17. Open `supabase/06_recruitment_engine.sql`, copy all its text, paste it in, click **Run**.
+17. Open `supabase/06_recruitment_engine.sql` — run each of the 8 blocks separately as described in the troubleshooting notes below if it fails as one file.
+18. Click **New Query**.
+19. Open `supabase/07_settings_and_id_engine.sql`, copy all its text, paste it in, click **Run**.
 
 You have now created your entire database: employees, countries, projects,
 recruitment, leave, performance, and the transfer-tracking system — all in one go.
@@ -128,7 +130,11 @@ whoever signs up first. You don't need to set anything manually.
 - Countries & Projects management screen (Admin)
 - Audit log recording every create/edit/delete/import
 
-**Phase 2 — Recruitment Engine**
+**Phase 2.5 — Admin Settings (Zero Supabase Dependency)**
+- Departments: add, edit, delete from inside the app — with department codes used in ID formats
+- Agencies: full management from inside the app — name, country, contact, status
+- User Management (Super Admin only): see all signed-up users, assign roles, assign country access, assign to agency — no SQL ever again
+- ID Format Engine (Super Admin only): define the format of every auto-generated ID in the system using tokens like {YEAR}, {COUNTRY}, {DEPT}, {SEQ4} — with a live preview before saving. Applies to Employee IDs, Requisition IDs, Candidate IDs, Transfer IDs, and more.
 - Manpower Requisitions: real CRUD, country-aware, AI job description generator
 - Recruitment Pipeline (Company HR view): Kanban across all 13 real GCC mobilization
   stages — Selection → Offer Issued → Offer Accepted → Visa Pending → Visa Allocated
