@@ -33,28 +33,35 @@ export default function OnboardingPage() {
     if (!wizard.name) return;
     setStep('ai');
     const firstMsg = { role: 'user', content: `We are ${wizard.name}, a ${wizard.industry} company with ${wizard.size} employees, operating in ${wizard.country}.` };
-    setMessages([firstMsg]);
-    sendToAI([firstMsg], wizard);
+    const initialMsgs = [firstMsg];
+    setMessages(initialMsgs);
+    await sendToAI(initialMsgs, wizard);
   };
 
   const sendToAI = async (msgs: any[], context?: any) => {
     setAiLoading(true);
-    const res = await fetch('/api/onboarding-ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: msgs, company_context: context || wizard }),
-    });
-    const data = await res.json();
-    const aiMsg = { role: 'ai', content: data.text };
-    setMessages((p) => [...p, aiMsg]);
+    try {
+      const res = await fetch('/api/onboarding-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: msgs, company_context: context || wizard }),
+      });
+      const data = await res.json();
+      const text = data.text || "Could you tell me more about your company?";
+      const aiMsg = { role: 'ai', content: text };
+      setMessages((p) => [...p, aiMsg]);
 
-    if (data.action?.action === 'suggest_setup') {
-      setSuggested({ modules: data.action.modules || [], custom: data.action.custom_sections || [] });
-      setSelectedModules(data.action.modules || []);
-      setCustomSections(data.action.custom_sections || []);
-      setStep('review');
+      if (data.action?.action === 'suggest_setup') {
+        setSuggested({ modules: data.action.modules || [], custom: data.action.custom_sections || [] });
+        setSelectedModules(data.action.modules || []);
+        setCustomSections(data.action.custom_sections || []);
+        setStep('review');
+      }
+    } catch (err) {
+      setMessages((p) => [...p, { role: 'ai', content: "Sorry, I had a connection issue. Please type your message again." }]);
+    } finally {
+      setAiLoading(false);
     }
-    setAiLoading(false);
   };
 
   const send = async () => {
