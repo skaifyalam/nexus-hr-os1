@@ -56,9 +56,9 @@ If they mention subcontractors, agencies, or partners: suggest a custom "Subcont
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I had trouble responding. Please try again.';
 
     // Extract JSON action if present
-    const jsonMatch = text.match(/\{\"action\":.*\}/s);
-    const action = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    const cleanText = text.replace(/\{\"action\":.*\}/s, '').trim();
+    const jsonMatch = text.match(/\{"action":[\s\S]*?\}(?=\s*$)/);
+    const action = jsonMatch ? (() => { try { return JSON.parse(jsonMatch[0]); } catch { return null; } })() : null;
+    const cleanText = text.replace(/\{"action":[\s\S]*?\}(?=\s*$)/, '').trim();
 
     return NextResponse.json({ text: cleanText, action });
   } catch (err: any) {
