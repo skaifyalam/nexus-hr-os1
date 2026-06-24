@@ -1,15 +1,13 @@
 -- ============================================================
 -- NEXUS HR PLATFORM — Multi-tenant foundation
--- Run AFTER 07_settings_and_id_engine.sql
+-- Safe to re-run — uses IF NOT EXISTS and drops old policies
 -- ============================================================
 
--- ─── COMPANY PROFILE ────────────────────────────────────────
--- Every signup creates one company. All data belongs to a company.
 CREATE TABLE IF NOT EXISTS company_profile (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   industry TEXT,
-  size_range TEXT, -- '1-50','51-200','201-1000','1000+'
+  size_range TEXT,
   headquarters_country TEXT,
   logo_url TEXT,
   primary_color TEXT DEFAULT '#6366f1',
@@ -17,68 +15,57 @@ CREATE TABLE IF NOT EXISTS company_profile (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Add company_id to profiles so we know which company a user belongs to
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES company_profile(id);
 
--- ─── INSTALLED MODULES ──────────────────────────────────────
--- Tracks which optional modules a company has switched on
 CREATE TABLE IF NOT EXISTS installed_modules (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id UUID REFERENCES company_profile(id) ON DELETE CASCADE,
-  module_key TEXT NOT NULL, -- 'recruitment','leave','performance','disciplinary','exit','finance'
-  label TEXT NOT NULL,      -- user can rename: "Recruitment" → "Talent Pipeline"
+  module_key TEXT NOT NULL,
+  label TEXT NOT NULL,
   icon TEXT DEFAULT 'layout',
   sidebar_order INTEGER DEFAULT 99,
   installed_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(company_id, module_key)
 );
 
--- ─── CUSTOM SECTIONS ────────────────────────────────────────
--- User-created sections — can be anything
 CREATE TABLE IF NOT EXISTS custom_sections (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id UUID REFERENCES company_profile(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,           -- e.g. "Subcontractors", "HSE Inspections"
+  name TEXT NOT NULL,
   icon TEXT DEFAULT 'folder',
   sidebar_order INTEGER DEFAULT 99,
-  id_format TEXT DEFAULT '{SEQ4}', -- custom ID format for records in this section
+  id_format TEXT DEFAULT '{SEQ4}',
   id_last_sequence INTEGER DEFAULT 0,
   color TEXT DEFAULT '#6366f1',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── CUSTOM FIELDS ──────────────────────────────────────────
--- Fields the user defined for each custom section
 CREATE TABLE IF NOT EXISTS custom_fields (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   section_id UUID REFERENCES custom_sections(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,       -- e.g. "Company Name", "License Number"
-  field_key TEXT NOT NULL,  -- e.g. "company_name", "license_number"
-  field_type TEXT NOT NULL, -- 'text','number','date','dropdown','boolean','email','phone'
-  options JSONB,            -- for dropdown: ["Option A","Option B"]
+  name TEXT NOT NULL,
+  field_key TEXT NOT NULL,
+  field_type TEXT NOT NULL,
+  options JSONB,
   required BOOLEAN DEFAULT FALSE,
   display_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── CUSTOM RECORDS ─────────────────────────────────────────
--- Actual data entered into custom sections
 CREATE TABLE IF NOT EXISTS custom_records (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   section_id UUID REFERENCES custom_sections(id) ON DELETE CASCADE,
-  record_id TEXT,           -- auto-generated from section's id_format
-  data JSONB NOT NULL DEFAULT '{}', -- all field values stored here
+  record_id TEXT,
+  data JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── SIDEBAR CONFIG ─────────────────────────────────────────
--- Stores the full sidebar order per company including core + modules + custom
 CREATE TABLE IF NOT EXISTS sidebar_config (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id UUID REFERENCES company_profile(id) ON DELETE CASCADE,
-  item_type TEXT NOT NULL,  -- 'core','module','custom'
-  item_key TEXT NOT NULL,   -- route key or custom_section id
+  item_type TEXT NOT NULL,
+  item_key TEXT NOT NULL,
   label TEXT NOT NULL,
   icon TEXT DEFAULT 'layout',
   sidebar_order INTEGER DEFAULT 99,
@@ -86,16 +73,15 @@ CREATE TABLE IF NOT EXISTS sidebar_config (
   UNIQUE(company_id, item_type, item_key)
 );
 
--- ─── ONBOARDING CHAT HISTORY ────────────────────────────────
 CREATE TABLE IF NOT EXISTS onboarding_messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id UUID REFERENCES company_profile(id) ON DELETE CASCADE,
-  role TEXT NOT NULL, -- 'user' or 'ai'
+  role TEXT NOT NULL,
   content TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ─── RLS ────────────────────────────────────────────────────
+-- ─── RLS — drop all first, then recreate safely ─────────────
 ALTER TABLE company_profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE installed_modules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_sections ENABLE ROW LEVEL SECURITY;
@@ -104,11 +90,20 @@ ALTER TABLE custom_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sidebar_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE onboarding_messages ENABLE ROW LEVEL SECURITY;
 
--- Company members see their own company data only
+DROP POLICY IF EXISTS "Company data access" ON company_profile;
+DROP POLICY IF EXISTS "Company modules access" ON installed_modules;
+DROP POLICY IF EXISTS "Company sections access" ON custom_sections;
+DROP POLICY IF EXISTS "Company fields access" ON custom_fields;
+DROP POLICY IF EXISTS "Company records access" ON custom_records;
+DROP POLICY IF EXISTS "Company sidebar access" ON sidebar_config;
+DROP POLICY IF EXISTS "Company onboarding access" ON onboarding_messages;
+
 CREATE OR REPLACE FUNCTION public.user_company_id()
 RETURNS UUID AS $$
   SELECT company_id FROM public.profiles WHERE id = auth.uid()::UUID;
 $$ LANGUAGE SQL SECURITY DEFINER STABLE;
+
+GRANT EXECUTE ON FUNCTION public.user_company_id TO authenticated;
 
 CREATE POLICY "Company data access" ON company_profile
   FOR ALL USING (id = public.user_company_id());
@@ -139,10 +134,31 @@ CREATE POLICY "Company sidebar access" ON sidebar_config
 CREATE POLICY "Company onboarding access" ON onboarding_messages
   FOR ALL USING (company_id = public.user_company_id());
 
--- ─── AUTO-CREATE COMPANY ON FIRST SIGNUP ────────────────────
--- When the very first user from a new signup registers,
--- we create a company for them and link them to it.
--- Subsequent invites link to the same company.
+-- ─── ID generator for custom sections ───────────────────────
+CREATE OR REPLACE FUNCTION public.generate_custom_record_id(p_section_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+  v_format TEXT;
+  v_seq INTEGER;
+  v_result TEXT;
+BEGIN
+  UPDATE custom_sections
+  SET id_last_sequence = id_last_sequence + 1
+  WHERE id = p_section_id
+  RETURNING id_format, id_last_sequence INTO v_format, v_seq;
+  v_result := COALESCE(v_format, '{SEQ4}');
+  v_result := REPLACE(v_result, '{YEAR}',  TO_CHAR(NOW(), 'YYYY'));
+  v_result := REPLACE(v_result, '{MONTH}', TO_CHAR(NOW(), 'MM'));
+  v_result := REPLACE(v_result, '{SEQ3}',  LPAD(v_seq::TEXT, 3, '0'));
+  v_result := REPLACE(v_result, '{SEQ4}',  LPAD(v_seq::TEXT, 4, '0'));
+  v_result := REPLACE(v_result, '{SEQ5}',  LPAD(v_seq::TEXT, 5, '0'));
+  RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.generate_custom_record_id TO authenticated;
+
+-- ─── Update handle_new_user to create company ───────────────
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -153,13 +169,11 @@ BEGIN
   SELECT COUNT(*) INTO existing_count FROM public.profiles;
   SELECT id INTO default_org FROM public.organizations LIMIT 1;
 
-  -- Create a new company for each fresh first signup
   IF existing_count = 0 THEN
     INSERT INTO public.company_profile (name, onboarding_complete)
     VALUES ('My Company', FALSE)
     RETURNING id INTO new_company;
   ELSE
-    -- Existing installs: leave company_id null until onboarding
     new_company := NULL;
   END IF;
 
@@ -175,29 +189,3 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ─── ID GENERATOR FOR CUSTOM SECTIONS ───────────────────────
-CREATE OR REPLACE FUNCTION public.generate_custom_record_id(p_section_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-  v_format TEXT;
-  v_seq INTEGER;
-  v_result TEXT;
-BEGIN
-  UPDATE custom_sections
-  SET id_last_sequence = id_last_sequence + 1
-  WHERE id = p_section_id
-  RETURNING id_format, id_last_sequence INTO v_format, v_seq;
-
-  v_result := COALESCE(v_format, '{SEQ4}');
-  v_result := REPLACE(v_result, '{YEAR}',  TO_CHAR(NOW(), 'YYYY'));
-  v_result := REPLACE(v_result, '{MONTH}', TO_CHAR(NOW(), 'MM'));
-  v_result := REPLACE(v_result, '{SEQ3}',  LPAD(v_seq::TEXT, 3, '0'));
-  v_result := REPLACE(v_result, '{SEQ4}',  LPAD(v_seq::TEXT, 4, '0'));
-  v_result := REPLACE(v_result, '{SEQ5}',  LPAD(v_seq::TEXT, 5, '0'));
-  RETURN v_result;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-GRANT EXECUTE ON FUNCTION public.generate_custom_record_id TO authenticated;
-GRANT EXECUTE ON FUNCTION public.user_company_id TO authenticated;
