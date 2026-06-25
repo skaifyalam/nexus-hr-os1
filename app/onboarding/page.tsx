@@ -50,45 +50,38 @@ export default function OnboardingPage() {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setSaving(false); return; }
 
-      // Create or update company profile
-      const allCountries = [...selectedCountries, otherCountry.trim() ? otherCountry.trim() : ''].filter(Boolean);
+      const { data: existingProfile } = await supabase
+        .from('profiles').select('company_id').eq('id', user.id).single();
 
-      let companyId: string | null = null;
-      const { data: existingProfile } = await supabase.from('profiles').select('company_id').eq('id', user?.id).single();
+      let companyId = existingProfile?.company_id;
 
-      if (existingProfile?.company_id) {
-        companyId = existingProfile.company_id;
+      if (!companyId) {
+        const { data: company, error: companyError } = await supabase
+          .from('company_profile').insert({
+            name: info.name,
+            industry: info.industry,
+            size_range: info.size,
+            headquarters_country: selectedCountries[0] || '',
+            onboarding_complete: true,
+          }).select().single();
+
+        if (companyError || !company) {
+          console.error('Company creation failed:', companyError);
+          setSaving(false);
+          return;
+        }
+        companyId = company.id;
+        await supabase.from('profiles').update({ company_id: companyId }).eq('id', user.id);
+      } else {
         await supabase.from('company_profile').update({
           name: info.name,
           industry: info.industry,
           size_range: info.size,
-          headquarters_country: allCountries[0] || '',
+          headquarters_country: selectedCountries[0] || '',
           onboarding_complete: true,
         }).eq('id', companyId);
-      } else {
-        const { data: company } = await supabase.from('company_profile').insert({
-          name: info.name,
-          industry: info.industry,
-          size_range: info.size,
-          headquarters_country: allCountries[0] || '',
-          onboarding_complete: true,
-        }).select().single();
-        companyId = company?.id;
-        await supabase.from('profiles').update({ company_id: companyId }).eq('id', user?.id);
-      }
-
-      // Create operations (countries)
-      for (let i = 0; i < allCountries.length; i++) {
-        const countryName = allCountries[i];
-        const codeMap: Record<string, string> = {
-          'Saudi Arabia': 'SA', 'Kuwait': 'KW', 'UAE': 'AE',
-          'Qatar': 'QA', 'Bahrain': 'BH', 'Oman': 'OM',
-        };
-        await supabase.from('operations').insert({
-          name: `${countryName} Operations`,
-          country_code: codeMap[countryName] || countryName.slice(0, 2).toUpperCase(),
-        });
       }
 
       // Install selected modules
@@ -99,22 +92,24 @@ export default function OnboardingPage() {
           label: MODULES.find(m => m.key === key)?.label || key,
           sidebar_order: i + 10,
         }));
-        await supabase.from('installed_modules').insert(rows);
+        const { error: modError } = await supabase.from('installed_modules').insert(rows);
+        if (modError) console.error('Modules insert error:', modError);
       }
 
       // Create custom sections
       for (let i = 0; i < customSections.length; i++) {
-        await supabase.from('custom_sections').insert({
+        const { error: secError } = await supabase.from('custom_sections').insert({
           company_id: companyId,
           name: customSections[i].name,
           icon: 'folder',
           sidebar_order: 50 + i,
         });
+        if (secError) console.error('Section insert error:', secError);
       }
 
       router.push('/dashboard');
     } catch (err) {
-      console.error(err);
+      console.error('Finish error:', err);
       setSaving(false);
     }
   };
@@ -252,28 +247,33 @@ export default function OnboardingPage() {
                   { name: 'HSE Inspections', hint: 'Health, safety, and environment records' },
                   { name: 'Assets & Equipment', hint: 'Company vehicles, tools, equipment' },
                   { name: 'Training Records', hint: 'Certifications and training history' },
-                ].map(suggestion => (
-                  <button key={suggestion.name} onClick={() => {
-                    if (!customSections.find(s => s.name === suggestion.name)) {
-                      setCustomSections(p => [...p, { name: suggestion.name }]);
-                    }
-                  }} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left text-sm transition-colors ${customSections.find(s => s.name === suggestion.name) ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-200'}`}>
-                    <div>
-                      <p className="font-medium">{suggestion.name}</p>
-                      <p className="text-xs text-slate-400">{suggestion.hint}</p>
-                    </div>
-                    {customSections.find(s => s.name === suggestion.name)
-                      ? <Check size={14} className="text-indigo-600 flex-shrink-0" />
-                      : <Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                  </button>
-                ))}
+                ].map(suggestion => {
+                  const selected = !!customSections.find(s => s.name === suggestion.name);
+                  return (
+                    <button key={suggestion.name} onClick={() => {
+                      if (selected) {
+                        setCustomSections(p => p.filter(s => s.name !== suggestion.name));
+                      } else {
+                        setCustomSections(p => [...p, { name: suggestion.name }]);
+                      }
+                    }} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left text-sm transition-colors ${selected ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-200'}`}>
+                      <div>
+                        <p className="font-medium">{suggestion.name}</p>
+                        <p className="text-xs text-slate-400">{suggestion.hint}</p>
+                      </div>
+                      {selected ? <Check size={14} className="text-indigo-600 flex-shrink-0" /> : <Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
-              {customSections.filter(s => !['Subcontractors','HSE Inspections','Assets & Equipment','Training Records'].includes(s.name)).map((cs, i) => (
-                <div key={i} className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
-                  <span className="text-sm text-indigo-700">{cs.name}</span>
-                  <button onClick={() => setCustomSections(p => p.filter((_, j) => j !== i + 4))} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
-                </div>
-              ))}
+              {customSections
+                .filter(s => !['Subcontractors','HSE Inspections','Assets & Equipment','Training Records'].includes(s.name))
+                .map((cs, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+                    <span className="text-sm text-indigo-700">{cs.name}</span>
+                    <button onClick={() => setCustomSections(p => p.filter(s => s.name !== cs.name))} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+                  </div>
+                ))}
               <div className="flex gap-2">
                 <input value={newSection} onChange={e => setNewSection(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSection()} placeholder="Add your own section…" className="flex-1 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <button onClick={addSection} disabled={!newSection.trim()} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 disabled:opacity-40"><Plus size={16} /></button>
