@@ -189,3 +189,35 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ─── Allow anyone authenticated to insert their own company ──
+-- The RLS policy blocks insert because company_id isn't set yet
+-- when a new company is being created for the first time.
+-- We fix this by allowing authenticated users to insert,
+-- then the SELECT/UPDATE/DELETE remain scoped to their company.
+DROP POLICY IF EXISTS "Company data access" ON company_profile;
+
+CREATE POLICY "Company select" ON company_profile
+  FOR SELECT USING (id = public.user_company_id());
+
+CREATE POLICY "Company insert" ON company_profile
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Company update" ON company_profile
+  FOR UPDATE USING (id = public.user_company_id());
+
+CREATE POLICY "Company delete" ON company_profile
+  FOR DELETE USING (id = public.user_company_id());
+
+-- Same fix for installed_modules and custom_sections
+DROP POLICY IF EXISTS "Company modules access" ON installed_modules;
+CREATE POLICY "Company modules select" ON installed_modules FOR SELECT USING (company_id = public.user_company_id());
+CREATE POLICY "Company modules insert" ON installed_modules FOR INSERT WITH CHECK (true);
+CREATE POLICY "Company modules update" ON installed_modules FOR UPDATE USING (company_id = public.user_company_id());
+CREATE POLICY "Company modules delete" ON installed_modules FOR DELETE USING (company_id = public.user_company_id());
+
+DROP POLICY IF EXISTS "Company sections access" ON custom_sections;
+CREATE POLICY "Company sections select" ON custom_sections FOR SELECT USING (company_id = public.user_company_id());
+CREATE POLICY "Company sections insert" ON custom_sections FOR INSERT WITH CHECK (true);
+CREATE POLICY "Company sections update" ON custom_sections FOR UPDATE USING (company_id = public.user_company_id());
+CREATE POLICY "Company sections delete" ON custom_sections FOR DELETE USING (company_id = public.user_company_id());

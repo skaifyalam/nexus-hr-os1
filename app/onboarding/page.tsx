@@ -30,6 +30,7 @@ export default function OnboardingPage() {
   const [selectedModules, setSelectedModules] = useState<string[]>(['recruitment']);
   const [customSections, setCustomSections] = useState<{ name: string }[]>([]);
   const [newSection, setNewSection] = useState('');
+  const [finishError, setFinishError] = useState('');
 
   const toggleCountry = (c: string) => setSelectedCountries(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c]);
   const toggleModule = (k: string) => setSelectedModules(p => p.includes(k) ? p.filter(x => x !== k) : [...p, k]);
@@ -48,9 +49,10 @@ export default function OnboardingPage() {
 
   const finish = async () => {
     setSaving(true);
+    setFinishError('');
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setSaving(false); return; }
+      if (!user) { setFinishError('Not logged in.'); setSaving(false); return; }
 
       const { data: existingProfile } = await supabase
         .from('profiles').select('company_id').eq('id', user.id).single();
@@ -68,18 +70,22 @@ export default function OnboardingPage() {
           }).select().single();
 
         if (companyError || !company) {
-          console.error('Company creation failed:', companyError);
+          setFinishError(`Company setup failed: ${companyError?.message || 'unknown error'}`);
           setSaving(false);
           return;
         }
         companyId = company.id;
-        await supabase.from('profiles').update({ company_id: companyId }).eq('id', user.id);
+        const { error: profileError } = await supabase
+          .from('profiles').update({ company_id: companyId }).eq('id', user.id);
+        if (profileError) {
+          setFinishError(`Profile link failed: ${profileError.message}`);
+          setSaving(false);
+          return;
+        }
       } else {
         await supabase.from('company_profile').update({
-          name: info.name,
-          industry: info.industry,
-          size_range: info.size,
-          headquarters_country: selectedCountries[0] || '',
+          name: info.name, industry: info.industry,
+          size_range: info.size, headquarters_country: selectedCountries[0] || '',
           onboarding_complete: true,
         }).eq('id', companyId);
       }
@@ -87,29 +93,26 @@ export default function OnboardingPage() {
       // Install selected modules
       if (selectedModules.length > 0) {
         const rows = selectedModules.map((key, i) => ({
-          company_id: companyId,
-          module_key: key,
+          company_id: companyId, module_key: key,
           label: MODULES.find(m => m.key === key)?.label || key,
           sidebar_order: i + 10,
         }));
         const { error: modError } = await supabase.from('installed_modules').insert(rows);
-        if (modError) console.error('Modules insert error:', modError);
+        if (modError) console.warn('Modules:', modError.message);
       }
 
       // Create custom sections
       for (let i = 0; i < customSections.length; i++) {
         const { error: secError } = await supabase.from('custom_sections').insert({
-          company_id: companyId,
-          name: customSections[i].name,
-          icon: 'folder',
-          sidebar_order: 50 + i,
+          company_id: companyId, name: customSections[i].name,
+          icon: 'folder', sidebar_order: 50 + i,
         });
-        if (secError) console.error('Section insert error:', secError);
+        if (secError) console.warn('Section:', secError.message);
       }
 
       router.push('/dashboard');
-    } catch (err) {
-      console.error('Finish error:', err);
+    } catch (err: any) {
+      setFinishError(err.message || 'Something went wrong.');
       setSaving(false);
     }
   };
@@ -331,6 +334,11 @@ export default function OnboardingPage() {
             </button>
           )}
         </div>
+        {finishError && (
+          <div className="px-8 pb-4 text-xs text-red-600 bg-red-50 border-t border-red-100 py-3 rounded-b-2xl">
+            ⚠️ {finishError}
+          </div>
+        )}
       </div>
     </div>
   );
