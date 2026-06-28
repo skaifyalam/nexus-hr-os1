@@ -1,22 +1,20 @@
 import { createServerClient } from '@/lib/supabase/server';
+import { getShellData } from '@/lib/shellData';
 import Shell from '@/components/Shell';
 import RequisitionsClient from './RequisitionsClient';
 
 export default async function RequisitionsPage() {
   const supabase = createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+  const { profile, modules, customSections } = await getShellData();
 
-  const { data: requisitions } = await supabase
-    .from('requisitions')
-    .select('*, departments(name), operations(name, country_code)')
-    .order('created_at', { ascending: false });
-
-  const { data: departments } = await supabase.from('departments').select('*');
-  const { data: operations } = await supabase.from('operations').select('*');
+  const [{ data: requisitions }, { data: departments }, { data: operations }] = await Promise.all([
+    supabase.from('requisitions').select('*, departments(name), operations(name, country_code)').order('created_at', { ascending: false }),
+    supabase.from('departments').select('*'),
+    supabase.from('operations').select('*'),
+  ]);
 
   return (
-    <Shell current="/requisitions" profile={profile}>
+    <Shell current="/requisitions" profile={profile} modules={modules} customSections={customSections}>
       <RequisitionsClient initialRequisitions={requisitions || []} departments={departments || []} operations={operations || []} />
     </Shell>
   );
