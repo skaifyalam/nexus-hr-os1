@@ -16,7 +16,7 @@ For each column, return a JSON array of field configurations. Each object must h
 - "field_key": snake_case version of the header
 - "field_label": clean display label
 - "field_type": one of: "text","number","date","email","phone","dropdown","boolean","id_field"
-- "is_id_field": true ONLY if this looks like a unique identifier column
+- "is_id_field": true ONLY for a column the SYSTEM auto-generates as a sequence (like "Recruitment ID", "Employee Code", "Ref No" that the company assigns internally). NEVER mark real-world identifiers that people type in — Passport No, Iqama No, Phone, Mobile, National ID, Visa Number, Border Number — these are TEXT, not auto-IDs.
 - "id_format": if is_id_field is true, suggest a format using tokens like {SEQ4},{YEAR},{COUNTRY}
 - "options": array of unique values if field_type is "dropdown" (max 20)
 - "required": true if mandatory
@@ -30,7 +30,8 @@ Rules:
 - Yes/No/Active/Inactive/True/False or 2 distinct values → "boolean"
 - Nationality/Department/Status/Category/Type/Grade with few unique values → "dropdown"
 - Name/Address with many unique values → "text"
-- ID/Code/Number columns that are identifiers → "id_field"
+- ONLY a company-assigned sequential reference (Recruitment ID, Employee Code, internal Ref No) → "id_field"
+- Passport No, Iqama No, National ID, Visa No, Border No, Phone, Mobile → these are "text" (real-world numbers people type, NOT system-generated)
 
 Return ONLY a valid JSON array. No markdown, no explanation.`;
 
@@ -78,7 +79,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
         field_key: h.toLowerCase().replace(/[^a-z0-9]/g, '_'),
         field_label: h,
         field_type: /date/i.test(h) ? 'date' : /id|code|no\.?|number/i.test(h) ? 'id_field' : 'text',
-        is_id_field: /^(recruitment|employee|candidate)?\s*id/i.test(h) || /\bid\b/i.test(h),
+        is_id_field: /(recruitment|employee|candidate|ref)\s*(id|code|no)/i.test(h) && !/passport|iqama|visa|border|phone|mobile|national/i.test(h),
         options: [],
         required: false,
         display_order: i + 1,

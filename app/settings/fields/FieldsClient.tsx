@@ -133,18 +133,23 @@ export default function FieldsClient({ initialFields, customSections, companyId 
 
   const saveEdit = async () => {
     if (!editingId) return;
+    setError('');
     const options = editForm.field_type === 'dropdown'
       ? editForm.options.split('\n').map((o: string) => o.trim()).filter(Boolean)
       : [];
-    const { data } = await supabase.from('section_field_configs').update({
+    const { data, error } = await supabase.from('section_field_configs').update({
       field_label: editForm.field_label,
       field_type: editForm.field_type,
+      is_id_field: editForm.field_type === 'id_field',
       required: editForm.required,
       options,
-      id_format: editForm.id_format || null,
+      id_format: editForm.field_type === 'id_field' ? (editForm.id_format || null) : null,
     }).eq('id', editingId).select().single();
+    if (error) { setError(`Could not save: ${error.message}`); return; }
     if (data) setFields(prev => prev.map(f => f.id === editingId ? data : f));
     setEditingId(null);
+    setSuccess('Field updated. Re-import your data so the change takes effect.');
+    setTimeout(() => setSuccess(''), 4000);
   };
 
   const downloadTemplate = () => {
