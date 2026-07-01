@@ -184,12 +184,19 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
       const valid = rows.filter(r => Object.values(r).some(v => v !== ''));
 
+      // Normalize for fuzzy matching: lowercase, strip punctuation & extra spaces
+      const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
       const newRecords = [];
       for (const row of valid) {
         const data: any = {};
+        const rowKeys = Object.keys(row);
         fields.forEach(f => {
-          const mk = Object.keys(row).find(k => k.trim().toLowerCase() === f.field_label.trim().toLowerCase());
-          if (mk) data[f.field_key] = row[mk];
+          // Try exact match first, then fuzzy match on normalized strings
+          let mk = rowKeys.find(k => k.trim().toLowerCase() === f.field_label.trim().toLowerCase());
+          if (!mk) mk = rowKeys.find(k => norm(k) === norm(f.field_label));
+          if (!mk) mk = rowKeys.find(k => norm(k).includes(norm(f.field_label)) || norm(f.field_label).includes(norm(k)));
+          if (mk && row[mk] !== '') data[f.field_key] = row[mk];
         });
         let recordId = idField ? data[idField.field_key] : null;
         if (idField && !recordId) {
