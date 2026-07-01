@@ -21,6 +21,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const uploadRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
@@ -99,6 +100,37 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const deleteRecord = async (id: string) => {
     await supabase.from('section_records').delete().eq('id', id);
     setRecords(p => p.filter(r => r.id !== id));
+    setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map(r => r.id)));
+    }
+  };
+
+  const bulkDelete = async () => {
+    const ids = Array.from(selected);
+    await supabase.from('section_records').delete().in('id', ids);
+    setRecords(p => p.filter(r => !selected.has(r.id)));
+    setSelected(new Set());
+  };
+
+  const clearAll = async () => {
+    await supabase.from('section_records').delete()
+      .eq('company_id', companyId).eq('section_key', section.section_key);
+    setRecords([]);
+    setSelected(new Set());
   };
 
   // ─── Bulk import data ───────────────────────────────────────
@@ -213,6 +245,9 @@ export default function UniversalSection({ section, initialFields, initialRecord
           <p className="text-sm text-slate-500 mt-0.5">{records.length} records · {fields.length} fields</p>
         </div>
         <div className="flex gap-2">
+          {records.length > 0 && (
+            <button onClick={() => { if (confirm(`Delete ALL ${records.length} records in ${section.label}? This cannot be undone.`)) clearAll(); }} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-red-200 rounded-xl text-red-600 hover:bg-red-50"><Trash2 size={14} />Clear All</button>
+          )}
           <button onClick={exportData} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
           <button onClick={() => importRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
           <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && importData(e.target.files[0])} />
@@ -239,17 +274,34 @@ export default function UniversalSection({ section, initialFields, initialRecord
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 bg-indigo-600 text-white rounded-xl px-4 py-2.5 mb-3">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <button onClick={bulkDelete} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-medium transition-colors">
+            <Trash2 size={13} />Delete Selected
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-indigo-100 hover:text-white ml-auto">Clear selection</button>
+        </div>
+      )}
+
       {view === 'table' && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead><tr className="border-b border-slate-100">
+                <th className="w-10 px-4 py-3">
+                  <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll} className="rounded cursor-pointer" />
+                </th>
                 {tableFields.map(f => <th key={f.id} className="text-left text-xs font-medium text-slate-500 px-4 py-3 whitespace-nowrap">{f.field_label}</th>)}
                 <th className="px-4 py-3" />
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
                 {filtered.map(r => (
-                  <tr key={r.id} className="hover:bg-slate-50/50 group">
+                  <tr key={r.id} className={`hover:bg-slate-50/50 group ${selected.has(r.id) ? 'bg-indigo-50/40' : ''}`}>
+                    <td className="px-4 py-3">
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="rounded cursor-pointer" />
+                    </td>
                     {tableFields.map(f => (
                       <td key={f.id} className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
                         {f.is_id_field ? <span className="font-mono text-xs text-slate-400">{r.data?.[f.field_key]}</span>
@@ -265,7 +317,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     </td>
                   </tr>
                 ))}
-                {filtered.length === 0 && <tr><td colSpan={tableFields.length + 1} className="text-center py-10 text-sm text-slate-400">No records — add one or import your Excel</td></tr>}
+                {filtered.length === 0 && <tr><td colSpan={tableFields.length + 2} className="text-center py-10 text-sm text-slate-400">No records — add one or import your Excel</td></tr>}
               </tbody>
             </table>
           </div>
