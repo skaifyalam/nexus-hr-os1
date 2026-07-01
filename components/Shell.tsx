@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
   BarChart3, Presentation, Plus, X, Folder, Check,
-  Calendar, TrendingUp, AlertTriangle, DoorOpen, Loader,
+  Calendar, TrendingUp, AlertTriangle, DoorOpen, Loader, Layout,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -16,33 +16,32 @@ const ICON_MAP: Record<string, any> = {
   reports: BarChart3, boardroom: Presentation, leave: Calendar,
   performance: TrendingUp, disciplinary: AlertTriangle, exit: DoorOpen,
   folder: Folder, building: Building2, globe: Globe, users: Users,
-  settings: Settings, default: Folder,
+  settings: Settings, layout: Layout, default: Folder,
 };
 
 const MODULE_ROUTES: Record<string, string> = {
-  recruitment: '/recruitment',
-  leave: '/leaves',
-  performance: '/performance',
-  disciplinary: '/disciplinary',
-  exit: '/exits',
+  recruitment: '/recruitment', leave: '/leaves',
+  performance: '/performance', disciplinary: '/disciplinary', exit: '/exits',
 };
 
 const ADMIN_NAV = [
   { href: '/settings/operations', label: 'Countries & Projects', icon: 'globe', superOnly: false },
   { href: '/settings/departments', label: 'Departments', icon: 'settings', superOnly: false },
   { href: '/settings/agencies', label: 'Agencies', icon: 'building', superOnly: false },
+  { href: '/settings/fields', label: 'Field Configurator', icon: 'layout', superOnly: false },
   { href: '/settings/users', label: 'User Management', icon: 'users', superOnly: true },
   { href: '/settings/id-formats', label: 'ID Formats', icon: 'hash', superOnly: true },
 ];
 
 export default function Shell({
-  current, profile, children, modules = [], customSections = [],
+  current, profile, children, modules = [], customSections = [], companyId = '',
 }: {
   current: string;
   profile: { full_name?: string; email?: string; role?: string } | null;
   children: React.ReactNode;
   modules?: any[];
   customSections?: any[];
+  companyId?: string;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -51,18 +50,17 @@ export default function Shell({
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
+  const signOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
   const addSection = async () => {
     if (!newName.trim()) return;
     setAdding(true);
-    const { data } = await supabase.from('custom_sections').insert({
+    const { data, error } = await supabase.from('custom_sections').insert({
       name: newName.trim(), icon: 'folder', sidebar_order: 99,
+      company_id: companyId || undefined,
     }).select().single();
     if (data) { setSections(p => [...p, data]); router.push(`/sections/${data.id}`); }
+    if (error) console.error('Add section:', error.message);
     setNewName(''); setAddOpen(false); setAdding(false);
   };
 
@@ -95,7 +93,9 @@ export default function Shell({
           <NavLink href="/requisitions" label="Requisitions" icon="requisitions" />
 
           {modules.map(mod => (
-            <NavLink key={mod.module_key} href={MODULE_ROUTES[mod.module_key] || `/${mod.module_key}`} label={mod.label} icon={mod.module_key} />
+            <NavLink key={mod.module_key}
+              href={MODULE_ROUTES[mod.module_key] || `/${mod.module_key}`}
+              label={mod.label} icon={mod.module_key} />
           ))}
 
           <NavLink href="/brain" label="Company Brain" icon="brain" />
@@ -115,14 +115,17 @@ export default function Shell({
             </button>
           ) : (
             <div className="px-1 pt-2 space-y-1.5">
-              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSection()}
+              <input value={newName} onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addSection()}
                 placeholder="Section name…" autoFocus
                 className="w-full border border-indigo-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               <div className="flex gap-1">
-                <button onClick={addSection} disabled={adding || !newName.trim()} className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-indigo-600 text-white text-xs rounded-lg disabled:opacity-50">
+                <button onClick={addSection} disabled={adding || !newName.trim()}
+                  className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-indigo-600 text-white text-xs rounded-lg disabled:opacity-50">
                   {adding ? <Loader size={11} className="animate-spin" /> : <Check size={11} />}Add
                 </button>
-                <button onClick={() => { setAddOpen(false); setNewName(''); }} className="p-1.5 bg-slate-100 rounded-lg text-slate-500"><X size={13} /></button>
+                <button onClick={() => { setAddOpen(false); setNewName(''); }}
+                  className="p-1.5 bg-slate-100 rounded-lg text-slate-500"><X size={13} /></button>
               </div>
             </div>
           )}
@@ -133,7 +136,8 @@ export default function Shell({
               {ADMIN_NAV.filter(item => !item.superOnly || profile.role === 'super_admin').map(item => {
                 const Icon = ICON_MAP[item.icon] || Settings;
                 return (
-                  <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive(item.href) ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  <Link key={item.href} href={item.href}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive(item.href) ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
                     <Icon size={14} />{item.label}
                   </Link>
                 );
@@ -144,7 +148,9 @@ export default function Shell({
 
         <div className="px-4 py-4 border-t border-slate-100">
           <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center"><User size={13} className="text-indigo-600" /></div>
+            <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center">
+              <User size={13} className="text-indigo-600" />
+            </div>
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-700 truncate">{profile?.full_name || profile?.email}</p>
               <p className="text-xs text-slate-400 capitalize">{profile?.role?.replace(/_/g, ' ')}</p>

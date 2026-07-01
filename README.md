@@ -231,3 +231,29 @@ test account. Then I'll build the next phase.
   `03_multi_country_operations.sql`, `04_operations_management_policies.sql`,
   `05_smart_transfer_checklist.sql`, `06_recruitment_engine.sql`. Running them
   out of order will fail because later files depend on tables created earlier.
+
+## Phase 4.5 — Customization Update
+
+### New SQL to run (Supabase → SQL Editor → New Query, run in order):
+1. `supabase/11_user_defined_fields.sql`
+
+### New Vercel Environment Variable Required
+The "Invite User" feature needs admin access to Supabase Auth:
+- Name: `SUPABASE_SERVICE_ROLE_KEY`
+- Value: Supabase → Settings → API → `service_role` key (keep this secret, never expose to client)
+
+### What's New
+- **Field Configurator** (sidebar → Admin → Field Configurator): Upload an Excel
+  template or add fields manually for Employees, Recruitment, or any custom
+  section. AI detects field types, dropdown options, and ID patterns automatically
+  from your uploaded file — no predefined columns anymore.
+- **Multi-format report export**: AI Reports can now be downloaded as Excel (.csv),
+  Word (.doc), PowerPoint-ready HTML slides, or plain text — not just .txt.
+- **Add Section fix**: The sidebar "+ Add Section" button now works correctly
+  (previously failed silently due to a missing company ID).
+
+### Still To Build (told to user, in progress)
+- Dashboard customizable widget picker (add/remove cards)
+- AI auto-populated dropdowns reflected live in Admin Panel after upload
+- Bulk requisition entry (one REQ ID, multiple position line items)
+- Section data export in original uploaded template format
