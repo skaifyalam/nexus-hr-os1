@@ -41,19 +41,50 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 2000, temperature: 0.1 },
+          generationConfig: {
+            maxOutputTokens: 8000,
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
         }),
       }
     );
     const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
-    let fields = [];
-    try {
-      fields = JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch {
-      return NextResponse.json({ error: 'AI could not parse the fields. Try again.' }, { status: 500 });
+    if (data.error) {
+      return NextResponse.json({ error: `Gemini: ${data.error.message}` }, { status: 500 });
     }
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    // Robust JSON extraction — handles markdown fences, leading/trailing text
+    let fields = [];
+    const tryParse = (s: string) => { try { return JSON.parse(s); } catch { return null; } };
+
+    let parsed = tryParse(text);
+    if (!parsed) parsed = tryParse(text.replace(/```json|```/g, '').trim());
+    if (!parsed) {
+      // Extract the outermost [ ... ] array
+      const start = text.indexOf('[');
+      const end = text.lastIndexOf(']');
+      if (start !== -1 && end !== -1 && end > start) {
+        parsed = tryParse(text.slice(start, end + 1));
+      }
+    }
+
+    if (!parsed || !Array.isArray(parsed)) {
+      // Last-resort fallback: build simple text fields from headers so the user is never stuck
+      parsed = headers.map((h: string, i: number) => ({
+        field_key: h.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+        field_label: h,
+        field_type: /date/i.test(h) ? 'date' : /id|code|no\.?|number/i.test(h) ? 'id_field' : 'text',
+        is_id_field: /^(recruitment|employee|candidate)?\s*id/i.test(h) || /\bid\b/i.test(h),
+        options: [],
+        required: false,
+        display_order: i + 1,
+      }));
+    }
+    fields = parsed;
 
     const supabase = createRouteClient();
     await supabase.from('section_field_configs')

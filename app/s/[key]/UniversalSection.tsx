@@ -22,11 +22,15 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [error, setError] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [manualBuild, setManualBuild] = useState(false);
+  const [mfLabel, setMfLabel] = useState('');
+  const [mfType, setMfType] = useState('text');
   const uploadRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
   const configured = fields.length > 0;
+  const [forceSetup, setForceSetup] = useState(false);
   const stageField = useMemo(() => fields.find(f => /status|stage/i.test(f.field_label)), [fields]);
   const idField = useMemo(() => fields.find(f => f.is_id_field), [fields]);
   const nameField = useMemo(() => fields.find(f => /name|title/i.test(f.field_label)) || fields[0], [fields]);
@@ -55,7 +59,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
         const allRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
         const headers = (allRows[0] || []).map((h: any) => String(h).trim()).filter(Boolean);
 
-        if (headers.length === 0) { setError('No column headers found in row 1.'); setAnalyzing(false); return; }
+        if (headers.length === 0) { setError('No column headers found in row 1 of your file.'); setAnalyzing(false); return; }
 
         const dataRows = allRows.slice(1).filter(r => r.some(c => c !== '' && c != null));
         const sampleRows = dataRows.slice(0, 10).map(r => {
@@ -66,12 +70,28 @@ export default function UniversalSection({ section, initialFields, initialRecord
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ headers, sample_rows: sampleRows, section_key: section.section_key, company_id: companyId }),
         });
-        const data = await res.json();
-        if (data.error) { setError(data.error); setAnalyzing(false); return; }
 
-        setFields(data.fields || []);
+        if (!res.ok) {
+          const errText = await res.text();
+          setError(`Server error (${res.status}): ${errText.slice(0, 200)}`);
+          setAnalyzing(false);
+          return;
+        }
+
+        const data = await res.json();
+        if (data.error) { setError(`AI error: ${data.error}`); setAnalyzing(false); return; }
+        if (!data.fields || data.fields.length === 0) {
+          setError('AI did not detect any fields. Your file headers may be unclear — try "start with blank" and add fields manually.');
+          setAnalyzing(false);
+          return;
+        }
+
+        setFields(data.fields);
+        setForceSetup(false);
         await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
-      } catch (err: any) { setError(err.message); }
+      } catch (err: any) {
+        setError(`Upload failed: ${err.message}`);
+      }
       setAnalyzing(false);
     };
     reader.readAsBinaryString(file);
@@ -131,6 +151,28 @@ export default function UniversalSection({ section, initialFields, initialRecord
       .eq('company_id', companyId).eq('section_key', section.section_key);
     setRecords([]);
     setSelected(new Set());
+  };
+
+  const addManualField = async () => {
+    if (!mfLabel.trim()) return;
+    const fieldKey = mfLabel.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now().toString().slice(-3);
+    const { data } = await supabase.from('section_field_configs').insert({
+      company_id: companyId,
+      section_key: section.section_key,
+      field_key: fieldKey,
+      field_label: mfLabel.trim(),
+      field_type: mfType,
+      is_id_field: mfType === 'id_field',
+      display_order: fields.length + 1,
+    }).select().single();
+    if (data) setFields(p => [...p, data]);
+    await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
+    setMfLabel(''); setMfType('text');
+  };
+
+  const deleteField = async (id: string) => {
+    await supabase.from('section_field_configs').delete().eq('id', id);
+    setFields(p => p.filter(f => f.id !== id));
   };
 
   // ─── Bulk import data ───────────────────────────────────────
@@ -195,12 +237,15 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const tableFields = fields.slice(0, 7);
 
   // ═══ EMPTY STATE — section not configured yet ═══════════════
-  if (!configured) {
+  if (!configured || forceSetup) {
     return (
       <div>
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">{section.label}</h1>
           <p className="text-sm text-slate-500 mt-0.5">Set up this section by uploading your Excel — AI builds it to match your structure</p>
+          {forceSetup && configured && (
+            <button onClick={() => setForceSetup(false)} className="text-xs text-indigo-600 hover:underline mt-2">← Back to existing data ({fields.length} fields)</button>
+          )}
         </div>
         {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl mb-4">{error}</div>}
         <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
@@ -221,17 +266,44 @@ export default function UniversalSection({ section, initialFields, initialRecord
                 <Upload size={15} />Upload Excel File
               </button>
               <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && analyzeFile(e.target.files[0])} />
-              <p className="text-xs text-slate-400 mt-4">Or <button onClick={async () => {
-                // Manual: create one blank text field to start
-                const { data } = await supabase.from('section_field_configs').insert({
-                  company_id: companyId, section_key: section.section_key, field_key: 'name', field_label: 'Name', field_type: 'text', display_order: 1,
-                }).select().single();
-                if (data) setFields([data]);
-                await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
-              }} className="text-indigo-600 hover:underline">start with a blank field</button> and build manually</p>
+              <p className="text-xs text-slate-400 mt-4">Or <button onClick={() => setManualBuild(true)} className="text-indigo-600 hover:underline">build fields manually</button> without a file</p>
             </>
           )}
         </div>
+
+        {/* Manual field builder */}
+        {manualBuild && (
+          <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm p-5 mt-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">Add Your First Field</h3>
+            <p className="text-xs text-slate-500 mb-4">Name your own fields — nothing is preset. Add as many as you need.</p>
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-slate-600">Field Name</label>
+                <input value={mfLabel} onChange={e => setMfLabel(e.target.value)} placeholder="e.g. Passport No" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-slate-600">Type</label>
+                <select value={mfType} onChange={e => setMfType(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  {['text','number','date','email','phone','dropdown','boolean','id_field'].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button onClick={addManualField} disabled={!mfLabel.trim()} className="w-full px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">Add Field</button>
+              </div>
+            </div>
+            {fields.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
+                {fields.map(f => (
+                  <span key={f.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-700">
+                    {f.field_label} <span className="text-slate-400">({f.field_type})</span>
+                    <button onClick={() => deleteField(f.id)} className="text-slate-400 hover:text-red-500"><X size={11} /></button>
+                  </span>
+                ))}
+                <button onClick={() => setManualBuild(false)} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs font-medium ml-2">Done ({fields.length} fields)</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
