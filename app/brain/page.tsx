@@ -5,7 +5,7 @@ import BrainClient from './BrainClient';
 
 export default async function BrainPage() {
   const supabase = createServerClient();
-  const { profile, modules, customSections, user } = await getShellData();
+  const { profile, sections, user } = await getShellData();
 
   const [{ data: documents }, { data: conversations }] = await Promise.all([
     supabase.from('brain_documents').select('*').order('uploaded_at', { ascending: false }),
@@ -13,7 +13,7 @@ export default async function BrainPage() {
   ]);
 
   return (
-    <Shell current="/brain" profile={profile} modules={modules} customSections={customSections}>
+    <Shell current="/brain" profile={profile} sections={sections}>
       <BrainClient initialDocs={documents || []} initialConvs={conversations || []} companyId={profile?.company_id || ''} userEmail={user?.email || ''} />
     </Shell>
   );

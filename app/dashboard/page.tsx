@@ -4,7 +4,7 @@ import Shell from '@/components/Shell';
 import { Users, Briefcase, AlertTriangle, Calendar } from 'lucide-react';
 export default async function DashboardPage() {
   const supabase = createServerClient();
-  const { profile, modules, customSections } = await getShellData();
+  const { profile, sections } = await getShellData();
   const [{ data: emp }, { data: reqs }, { data: lv }] = await Promise.all([
     supabase.from('employees').select('status,iqama_expiry,passport_expiry'),
     supabase.from('requisitions').select('status'),
@@ -20,7 +20,7 @@ export default async function DashboardPage() {
     {label:'Pending Leaves',value:l.filter(x=>x.status==='pending').length,sub:'need approval',icon:Calendar,cls:'bg-emerald-50 text-emerald-600'},
   ];
   return (
-    <Shell current="/dashboard" profile={profile} modules={modules} customSections={customSections} companyId={profile?.company_id||''}>
+    <Shell current="/dashboard" profile={profile} sections={sections} companyId={profile?.company_id||''}>
       <div>
         <h1 className="text-2xl font-bold text-slate-900">HR Dashboard</h1>
         <p className="text-sm text-slate-500 mt-0.5 mb-6">Live data from your NEXUS HR database</p>

@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 
 export default async function SectionPage({ params }: { params: { key: string } }) {
   const supabase = createServerClient();
-  const { profile, modules, customSections } = await getShellData();
+  const { profile, sections } = await getShellData();
 
   // Find the section definition
   const { data: section } = await supabase
@@ -28,7 +28,7 @@ export default async function SectionPage({ params }: { params: { key: string } 
   ]);
 
   return (
-    <Shell current={`/s/${params.key}`} profile={profile} modules={modules} customSections={customSections} companyId={profile?.company_id || ''}>
+    <Shell current={`/s/${params.key}`} profile={profile} sections={sections} companyId={profile?.company_id || ''}>
       <UniversalSection
         section={section}
         initialFields={fields || []}

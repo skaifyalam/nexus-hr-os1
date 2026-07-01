@@ -5,7 +5,7 @@ import ReportsClient from './ReportsClient';
 
 export default async function ReportsPage() {
   const supabase = createServerClient();
-  const { profile, modules, customSections, user } = await getShellData();
+  const { profile, sections, user } = await getShellData();
 
   const { data: reports } = await supabase
     .from('ai_reports')
@@ -14,7 +14,7 @@ export default async function ReportsPage() {
     .limit(20);
 
   return (
-    <Shell current="/reports" profile={profile} modules={modules} customSections={customSections}>
+    <Shell current="/reports" profile={profile} sections={sections}>
       <ReportsClient
         initialReports={reports || []}
         companyId={profile?.company_id || ''}
