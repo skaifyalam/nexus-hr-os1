@@ -52,15 +52,31 @@ export default function FieldsClient({ initialFields, customSections, companyId 
       try {
         const wb = XLSX.read(e.target?.result, { type: 'binary' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[] = XLSX.utils.sheet_to_json(sheet);
-        const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+        // Read header row directly (row 1) even if no data rows exist
+        const allRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const headers = (allRows[0] || []).map((h: any) => String(h).trim()).filter(Boolean);
+
+        if (headers.length === 0) {
+          setError('No column headers found in the first row of the file. Make sure row 1 has your column names.');
+          setAnalyzing(false);
+          return;
+        }
+
+        // Build sample data rows (skip header, take next rows that have data)
+        const dataRows = allRows.slice(1).filter(r => r.some(c => c !== '' && c !== null));
+        const sampleRows = dataRows.slice(0, 10).map(r => {
+          const obj: any = {};
+          headers.forEach((h: string, i: number) => { obj[h] = r[i] ?? ''; });
+          return obj;
+        });
 
         const res = await fetch('/api/analyze-fields', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             headers,
-            sample_rows: rows.slice(0, 10),
+            sample_rows: sampleRows,
             section_key: activeSection,
             company_id: companyId,
           }),
@@ -68,7 +84,6 @@ export default function FieldsClient({ initialFields, customSections, companyId 
         const data = await res.json();
         if (data.error) { setError(data.error); setAnalyzing(false); return; }
 
-        // Update local state
         setFields(prev => [
           ...prev.filter(f => f.section_key !== activeSection),
           ...data.fields,
