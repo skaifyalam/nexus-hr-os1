@@ -88,7 +88,7 @@ export default function Shell({
           {/* All sections from company_sections (Employees, Recruitment, custom) */}
           {secs.map(s => {
             const Icon = ICON_MAP[s.icon] || Folder;
-            const href = `/s/${s.section_key}`;
+            const href = s.section_key === 'requisition' ? '/requisitions' : `/s/${s.section_key}`;
             return (
               <Link key={s.id} href={href} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive(href) ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
                 <Icon size={14} />{s.label}
