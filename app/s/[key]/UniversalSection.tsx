@@ -25,6 +25,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [manualBuild, setManualBuild] = useState(false);
   const [mfLabel, setMfLabel] = useState('');
   const [mfType, setMfType] = useState('text');
+  const [fieldsPanel, setFieldsPanel] = useState(false);
+  const [editFieldId, setEditFieldId] = useState<string | null>(null);
+  const [efLabel, setEfLabel] = useState('');
+  const [efType, setEfType] = useState('text');
+  const [efOptions, setEfOptions] = useState('');
   const uploadRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
@@ -173,6 +178,25 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const deleteField = async (id: string) => {
     await supabase.from('section_field_configs').delete().eq('id', id);
     setFields(p => p.filter(f => f.id !== id));
+  };
+
+  const startEditField = (f: any) => {
+    setEditFieldId(f.id); setEfLabel(f.field_label); setEfType(f.field_type);
+    setEfOptions((f.options || []).join('\n'));
+  };
+
+  const saveFieldEdit = async () => {
+    if (!editFieldId) return;
+    const opts = efType === 'dropdown' ? efOptions.split('\n').map(o => o.trim()).filter(Boolean) : [];
+    const { data } = await supabase.from('section_field_configs').update({
+      field_label: efLabel,
+      field_type: efType,
+      is_id_field: efType === 'id_field',
+      options: opts,
+      id_format: efType === 'id_field' ? '{SEQ4}' : null,
+    }).eq('id', editFieldId).select().single();
+    if (data) setFields(p => p.map(f => f.id === editFieldId ? data : f));
+    setEditFieldId(null);
   };
 
   // ─── Bulk import data ───────────────────────────────────────
@@ -327,6 +351,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
           {records.length > 0 && (
             <button onClick={() => { if (confirm(`Delete ALL ${records.length} records in ${section.label}? This cannot be undone.`)) clearAll(); }} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-red-200 rounded-xl text-red-600 hover:bg-red-50"><Trash2 size={14} />Clear All</button>
           )}
+          <button onClick={() => setFieldsPanel(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Settings size={14} />Fields</button>
           <button onClick={exportData} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
           <button onClick={() => importRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
           <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && importData(e.target.files[0])} />
@@ -450,6 +475,69 @@ export default function UniversalSection({ section, initialFields, initialRecord
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
               <button onClick={() => setAddOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={saveRecord} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">{editingId ? 'Save Changes' : 'Add Record'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Fields panel */}
+      {fieldsPanel && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => { setFieldsPanel(false); setEditFieldId(null); }} />
+          <div className="relative bg-white w-96 h-full shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <div><h2 className="text-sm font-semibold text-slate-900">Manage Fields</h2><p className="text-xs text-slate-400">{fields.length} fields · {section.label}</p></div>
+              <button onClick={() => { setFieldsPanel(false); setEditFieldId(null); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-4 space-y-2">
+              <button onClick={() => { setFieldsPanel(false); setForceSetup(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 mb-2">
+                <Upload size={13} />Re-upload Excel to rebuild fields
+              </button>
+              {fields.map(f => (
+                <div key={f.id} className="border border-slate-200 rounded-xl p-3">
+                  {editFieldId === f.id ? (
+                    <div className="space-y-2">
+                      <input value={efLabel} onChange={e => setEfLabel(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      <select value={efType} onChange={e => setEfType(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        {['text','number','date','email','phone','dropdown','boolean','id_field'].map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      {efType === 'dropdown' && <textarea value={efOptions} onChange={e => setEfOptions(e.target.value)} rows={3} placeholder="One option per line" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />}
+                      <div className="flex gap-2">
+                        <button onClick={saveFieldEdit} className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg">Save</button>
+                        <button onClick={() => setEditFieldId(null)} className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs rounded-lg">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{f.field_label}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">{f.field_type}</span>
+                          {f.is_id_field && <span className="text-xs px-1.5 py-0.5 bg-violet-100 text-violet-600 rounded">Auto ID</span>}
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => startEditField(f)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
+                        <button onClick={() => deleteField(f.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Add new field inline */}
+              <div className="border-2 border-dashed border-slate-200 rounded-xl p-3 mt-3">
+                <p className="text-xs font-medium text-slate-500 mb-2">Add a field</p>
+                <div className="space-y-2">
+                  <input value={mfLabel} onChange={e => setMfLabel(e.target.value)} placeholder="Field name" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="flex gap-2">
+                    <select value={mfType} onChange={e => setMfType(e.target.value)} className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      {['text','number','date','email','phone','dropdown','boolean','id_field'].map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <button onClick={addManualField} disabled={!mfLabel.trim()} className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg disabled:opacity-40">Add</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

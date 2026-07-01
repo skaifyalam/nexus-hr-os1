@@ -21,7 +21,6 @@ const ADMIN_NAV = [
   { href: '/settings/operations', label: 'Countries & Projects', icon: 'globe', superOnly: false },
   { href: '/settings/departments', label: 'Departments', icon: 'settings', superOnly: false },
   { href: '/settings/agencies', label: 'Agencies', icon: 'building', superOnly: false },
-  { href: '/settings/fields', label: 'Field Configurator', icon: 'layout', superOnly: false },
   { href: '/settings/users', label: 'User Management', icon: 'users', superOnly: true },
   { href: '/settings/id-formats', label: 'ID Formats', icon: 'hash', superOnly: true },
 ];
