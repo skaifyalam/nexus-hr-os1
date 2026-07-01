@@ -247,12 +247,18 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
               {wSection && (wMetric === 'breakdown' || wMetric === 'sum') && (
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">{wMetric === 'sum' ? 'Which number field?' : 'Group by which field?'}</label>
-                  <select value={wField} onChange={e => setWField(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value="">Select field…</option>
-                    {sectionFields(wSection)
-                      .filter(f => wMetric === 'sum' ? f.field_type === 'number' : true)
-                      .map(f => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
-                  </select>
+                  {wMetric === 'sum' && sectionFields(wSection).filter(f => f.field_type === 'number').length === 0 ? (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+                      No number fields in {sectionLabel(wSection)}. To sum a column (like Salary or Headcount), open that section → <span className="font-medium">Fields</span> → edit the field → set its type to <span className="font-medium">number</span>. Then it will appear here.
+                    </div>
+                  ) : (
+                    <select value={wField} onChange={e => setWField(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="">Select field…</option>
+                      {sectionFields(wSection)
+                        .filter(f => wMetric === 'sum' ? f.field_type === 'number' : true)
+                        .map(f => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
+                    </select>
+                  )}
                 </div>
               )}
 
