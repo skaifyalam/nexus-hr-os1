@@ -103,6 +103,9 @@ export default function Shell({
           <Link href="/reports" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/reports') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
             <BarChart3 size={14} />AI Reports
           </Link>
+          <Link href="/compliance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/compliance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <Globe size={14} />Compliance
+          </Link>
 
           {/* Add Section */}
           {!addOpen ? (

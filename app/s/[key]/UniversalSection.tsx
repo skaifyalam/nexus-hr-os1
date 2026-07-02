@@ -197,27 +197,16 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const remarksField = useMemo(() => fields.find(f => /remark|comment|note/i.test(f.field_label)), [fields]);
   const dateFields = useMemo(() => fields.filter(f => f.field_type === 'date'), [fields]);
 
-  // Returns the date for a record's CURRENT stage (from the mapped date field),
-  // falling back to the LATEST date across all date fields (most recent milestone)
+  // Returns the date for a record's CURRENT stage — only if mapped in Stage Flow
   const stageDateFor = (r: any) => {
     const status = r.data?.[stageField?.field_key];
-    if (status) {
-      const flow = stageFlows.find(f => f.status_value === status);
-      if (flow?.date_field_key) {
-        const v = r.data?.[flow.date_field_key];
-        if (v) return v;
-      }
+    if (!status) return null;
+    const flow = stageFlows.find(f => f.status_value === status);
+    if (flow?.date_field_key) {
+      const v = r.data?.[flow.date_field_key];
+      if (v) return v;
     }
-    // Fallback: latest date among all date-type fields
-    let latest: any = null;
-    let latestTime = 0;
-    dateFields.forEach(df => {
-      const v = r.data?.[df.field_key];
-      if (!v) return;
-      const t = new Date(v).getTime();
-      if (!isNaN(t) && t > latestTime) { latestTime = t; latest = v; }
-    });
-    return latest;
+    return null;
   };
 
   const fmtDate = (v: any) => {
@@ -570,7 +559,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                               <option value="">—</option>
                               {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
                             </select>
-                            {stageDateFor(r) && <p className="text-xs text-slate-400 mt-1">📅 {fmtDate(stageDateFor(r))}</p>}
+                            {stageDateFor(r) ? <p className="text-xs text-slate-400 mt-1">📅 {fmtDate(stageDateFor(r))}</p> : <p className="text-xs text-slate-300 mt-1">No date</p>}
                           </div>
                         ) : f.is_id_field ? <span className="font-mono text-xs text-slate-400">{r.data?.[f.field_key]}</span>
                          : f.field_type === 'boolean' ? (r.data?.[f.field_key] ? '✓' : '—')
@@ -621,7 +610,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
                       <p className="text-xs font-semibold text-slate-800">{r.data?.[nameField?.field_key] || 'Untitled'}</p>
                       {idField && <p className="text-xs text-slate-400 font-mono mt-0.5">{r.data?.[idField.field_key]}</p>}
-                      {stageDateFor(r) && <p className="text-xs text-indigo-500 mt-1">📅 {fmtDate(stageDateFor(r))}</p>}
+                      {stageDateFor(r) ? <p className="text-xs text-indigo-500 mt-1">📅 {fmtDate(stageDateFor(r))}</p> : <p className="text-xs text-slate-300 mt-1">No date</p>}
                       <select value={stage} onChange={e => requestStatusChange(r, e.target.value)} className="mt-2 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
                         {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
                       </select>
