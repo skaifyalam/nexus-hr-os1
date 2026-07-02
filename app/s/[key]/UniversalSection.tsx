@@ -195,24 +195,35 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
   // ─── Stage tracking ─────────────────────────────────────────
   const remarksField = useMemo(() => fields.find(f => /remark|comment|note/i.test(f.field_label)), [fields]);
+  const dateFields = useMemo(() => fields.filter(f => f.field_type === 'date'), [fields]);
 
-  // Returns the date for a record's CURRENT stage (from the mapped date field)
+  // Returns the date for a record's CURRENT stage (from the mapped date field),
+  // falling back to the LATEST date across all date fields (most recent milestone)
   const stageDateFor = (r: any) => {
     const status = r.data?.[stageField?.field_key];
-    if (!status) return null;
-    const flow = stageFlows.find(f => f.status_value === status);
-    if (flow?.date_field_key) {
-      const v = r.data?.[flow.date_field_key];
-      if (v) return v;
+    if (status) {
+      const flow = stageFlows.find(f => f.status_value === status);
+      if (flow?.date_field_key) {
+        const v = r.data?.[flow.date_field_key];
+        if (v) return v;
+      }
     }
-    return null;
+    // Fallback: latest date among all date-type fields
+    let latest: any = null;
+    let latestTime = 0;
+    dateFields.forEach(df => {
+      const v = r.data?.[df.field_key];
+      if (!v) return;
+      const t = new Date(v).getTime();
+      if (!isNaN(t) && t > latestTime) { latestTime = t; latest = v; }
+    });
+    return latest;
   };
 
   const fmtDate = (v: any) => {
     const d = new Date(v);
     return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   };
-  const dateFields = useMemo(() => fields.filter(f => f.field_type === 'date'), [fields]);
 
   // Called when a status value changes anywhere (inline or kanban)
   const requestStatusChange = (record: any, newStatus: string) => {
@@ -398,7 +409,14 @@ export default function UniversalSection({ section, initialFields, initialRecord
     return <input type={f.field_type === 'date' ? 'date' : f.field_type === 'number' ? 'number' : 'text'} value={val} onChange={e => setForm({ ...form, [f.field_key]: e.target.value })} className={base} />;
   };
 
-  const tableFields = fields.slice(0, 7);
+  // First 7 fields, but ALWAYS include the stage/status field (even if it's column 11 of 24)
+  const tableFields = (() => {
+    const base = fields.slice(0, 7);
+    if (stageField && !base.find(f => f.id === stageField.id)) {
+      return [...fields.slice(0, 6), stageField];
+    }
+    return base;
+  })();
 
   // ═══ EMPTY STATE — section not configured yet ═══════════════
   if (!configured || forceSetup) {
