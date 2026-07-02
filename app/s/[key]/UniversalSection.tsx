@@ -35,6 +35,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [historyRows, setHistoryRows] = useState<any[]>([]);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
+  const [activeTab, setActiveTab] = useState<'active' | 'inactive' | 'all'>('all');
+  const [activeConfig, setActiveConfig] = useState<{ field: string; values: string[] }>({
+    field: section.active_field_key || '',
+    values: section.active_values || [],
+  });
   const [editFieldId, setEditFieldId] = useState<string | null>(null);
   const [efLabel, setEfLabel] = useState('');
   const [efType, setEfType] = useState('text');
@@ -56,11 +61,23 @@ export default function UniversalSection({ section, initialFields, initialRecord
     return Array.from(set);
   }, [stageField, records]);
 
+  const hasActiveConfig = activeConfig.field && activeConfig.values.length > 0;
+  const isActive = (r: any) => {
+    if (!hasActiveConfig) return true;
+    const val = String(r.data?.[activeConfig.field] ?? '').trim().toLowerCase();
+    return activeConfig.values.map(v => String(v).trim().toLowerCase()).includes(val);
+  };
+
   const filtered = records.filter(r => {
     const matchSearch = !search || JSON.stringify(r.data || {}).toLowerCase().includes(search.toLowerCase());
     const matchStage = stageFilter === 'all' || r.data?.[stageField?.field_key] === stageFilter;
-    return matchSearch && matchStage;
+    const matchTab = activeTab === 'all' || !hasActiveConfig
+      ? true : activeTab === 'active' ? isActive(r) : !isActive(r);
+    return matchSearch && matchStage && matchTab;
   });
+
+  const activeCount = hasActiveConfig ? records.filter(isActive).length : records.length;
+  const inactiveCount = hasActiveConfig ? records.length - activeCount : 0;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -196,6 +213,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const deleteField = async (id: string) => {
     await supabase.from('section_field_configs').delete().eq('id', id);
     setFields(p => p.filter(f => f.id !== id));
+  };
+
+  const saveActiveConfig = async (field: string, values: string[]) => {
+    setActiveConfig({ field, values });
+    await supabase.from('company_sections')
+      .update({ active_field_key: field || null, active_values: values })
+      .eq('id', section.id);
   };
 
   // ─── Stage tracking ─────────────────────────────────────────
@@ -505,6 +529,21 @@ export default function UniversalSection({ section, initialFields, initialRecord
         </div>
       </div>
 
+      {hasActiveConfig && (
+        <div className="flex gap-1 mb-4 bg-slate-100 rounded-xl p-1 w-fit">
+          {[
+            { k: 'active' as const, label: 'Active', count: activeCount },
+            { k: 'inactive' as const, label: 'Inactive', count: inactiveCount },
+            { k: 'all' as const, label: 'All', count: records.length },
+          ].map(t => (
+            <button key={t.k} onClick={() => { setActiveTab(t.k); setPage(0); }}
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${activeTab === t.k ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
+              {t.label} <span className={activeTab === t.k ? 'text-slate-400' : 'text-slate-400'}>({t.count})</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -776,6 +815,38 @@ export default function UniversalSection({ section, initialFields, initialRecord
               <button onClick={() => { setFieldsPanel(false); setForceSetup(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 mb-2">
                 <Upload size={13} />Re-upload Excel to rebuild fields
               </button>
+
+              {/* Active/Inactive status config */}
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 mb-2">
+                <p className="text-xs font-semibold text-slate-600 mb-2">Active / Inactive tracking</p>
+                <p className="text-xs text-slate-400 mb-2">Pick the field that marks who's currently active, then which values mean "active".</p>
+                <select value={activeConfig.field} onChange={e => saveActiveConfig(e.target.value, [])}
+                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">No active/inactive tracking</option>
+                  {fields.map(f => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
+                </select>
+                {activeConfig.field && (() => {
+                  const af = fields.find(f => f.field_key === activeConfig.field);
+                  const opts = af?.options?.length > 0 ? af.options
+                    : Array.from(new Set(records.map(r => r.data?.[activeConfig.field]).filter(Boolean))).slice(0, 20);
+                  return (
+                    <div className="flex flex-wrap gap-1.5">
+                      {opts.map((o: string) => {
+                        const on = activeConfig.values.map(v => String(v).toLowerCase()).includes(String(o).toLowerCase());
+                        return (
+                          <button key={o} onClick={() => {
+                            const next = on ? activeConfig.values.filter(v => String(v).toLowerCase() !== String(o).toLowerCase()) : [...activeConfig.values, o];
+                            saveActiveConfig(activeConfig.field, next);
+                          }} className={`px-2 py-1 rounded-lg border text-xs ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-slate-200 text-slate-600'}`}>
+                            {on ? '✓ ' : ''}{o}
+                          </button>
+                        );
+                      })}
+                      {opts.length === 0 && <span className="text-xs text-slate-400">No values found in this field yet.</span>}
+                    </div>
+                  );
+                })()}
+              </div>
               {fields.map(f => (
                 <div key={f.id} className="border border-slate-200 rounded-xl p-3">
                   {editFieldId === f.id ? (
