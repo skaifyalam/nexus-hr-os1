@@ -2,13 +2,13 @@
 import { useState, useRef, useMemo } from 'react';
 import {
   Plus, X, Search, Upload, Loader, Download, LayoutGrid, Table2,
-  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet,
+  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, companyId }: {
-  section: any; initialFields: any[]; initialRecords: any[]; companyId: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
@@ -26,6 +26,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [mfLabel, setMfLabel] = useState('');
   const [mfType, setMfType] = useState('text');
   const [fieldsPanel, setFieldsPanel] = useState(false);
+  const [stageFlows, setStageFlows] = useState<any[]>(initialStageFlows);
+  const [flowPanel, setFlowPanel] = useState(false);
+  const [statusChange, setStatusChange] = useState<{ record: any; newStatus: string } | null>(null);
+  const [scDate, setScDate] = useState('');
+  const [scRemarks, setScRemarks] = useState('');
+  const [historyFor, setHistoryFor] = useState<any>(null);
+  const [historyRows, setHistoryRows] = useState<any[]>([]);
   const [editFieldId, setEditFieldId] = useState<string | null>(null);
   const [efLabel, setEfLabel] = useState('');
   const [efType, setEfType] = useState('text');
@@ -180,6 +187,81 @@ export default function UniversalSection({ section, initialFields, initialRecord
     setFields(p => p.filter(f => f.id !== id));
   };
 
+  // ─── Stage tracking ─────────────────────────────────────────
+  const remarksField = useMemo(() => fields.find(f => /remark|comment|note/i.test(f.field_label)), [fields]);
+  const dateFields = useMemo(() => fields.filter(f => f.field_type === 'date'), [fields]);
+
+  // Called when a status value changes anywhere (inline or kanban)
+  const requestStatusChange = (record: any, newStatus: string) => {
+    if (!stageField) return;
+    const current = record.data?.[stageField.field_key];
+    if (current === newStatus) return;
+    setScDate(new Date().toISOString().split('T')[0]);
+    setScRemarks('');
+    setStatusChange({ record, newStatus });
+  };
+
+  const confirmStatusChange = async () => {
+    if (!statusChange || !stageField) return;
+    const { record, newStatus } = statusChange;
+    const fromStatus = record.data?.[stageField.field_key] || null;
+
+    const newData = { ...record.data, [stageField.field_key]: newStatus };
+
+    // Auto-fill mapped date field if this status has one
+    const flow = stageFlows.find(f => f.status_value === newStatus);
+    if (flow?.date_field_key && scDate) {
+      newData[flow.date_field_key] = scDate;
+    }
+    // Append remarks to the remarks field if present
+    if (scRemarks && remarksField) {
+      newData[remarksField.field_key] = scRemarks;
+    }
+
+    const { data: updated } = await supabase.from('section_records')
+      .update({ data: newData, updated_at: new Date().toISOString() })
+      .eq('id', record.id).select().single();
+    if (updated) setRecords(p => p.map(r => r.id === record.id ? updated : r));
+
+    // Log to history
+    await supabase.from('stage_history').insert({
+      company_id: companyId,
+      section_key: section.section_key,
+      record_pk: record.id,
+      record_id: record.record_id || record.data?.[idField?.field_key] || '',
+      from_status: fromStatus,
+      to_status: newStatus,
+      change_date: scDate || new Date().toISOString().split('T')[0],
+      remarks: scRemarks || null,
+      changed_by: userEmail,
+    });
+
+    setStatusChange(null);
+  };
+
+  const openHistory = async (record: any) => {
+    setHistoryFor(record);
+    const { data } = await supabase.from('stage_history')
+      .select('*').eq('record_pk', record.id).order('created_at', { ascending: false });
+    setHistoryRows(data || []);
+  };
+
+  // Save a status→date mapping
+  const saveFlow = async (statusValue: string, dateFieldKey: string | null) => {
+    const existing = stageFlows.find(f => f.status_value === statusValue);
+    if (existing) {
+      const { data } = await supabase.from('stage_flows')
+        .update({ date_field_key: dateFieldKey }).eq('id', existing.id).select().single();
+      if (data) setStageFlows(p => p.map(f => f.id === existing.id ? data : f));
+    } else {
+      const { data } = await supabase.from('stage_flows').insert({
+        company_id: companyId, section_key: section.section_key,
+        status_value: statusValue, date_field_key: dateFieldKey,
+      }).select().single();
+      if (data) setStageFlows(p => [...p, data]);
+    }
+  };
+
   const startEditField = (f: any) => {
     setEditFieldId(f.id); setEfLabel(f.field_label); setEfType(f.field_type);
     setEfOptions((f.options || []).join('\n'));
@@ -230,8 +312,36 @@ export default function UniversalSection({ section, initialFields, initialRecord
         newRecords.push({ company_id: companyId, section_key: section.section_key, record_id: recordId, data });
       }
       if (newRecords.length > 0) {
-        const { data } = await supabase.from('section_records').insert(newRecords).select();
-        if (data) setRecords(p => [...data, ...p]);
+        // UPSERT: update existing records (matched by record_id), insert new ones
+        const existingById = new Map(records.filter(r => r.record_id).map(r => [String(r.record_id).trim(), r]));
+        const toInsert: any[] = [];
+        const updatedList: any[] = [];
+
+        for (const nr of newRecords) {
+          const match = nr.record_id ? existingById.get(String(nr.record_id).trim()) : null;
+          if (match) {
+            // Merge: imported values overwrite, existing values kept where import is empty
+            const merged = { ...match.data, ...nr.data };
+            const { data: upd } = await supabase.from('section_records')
+              .update({ data: merged, updated_at: new Date().toISOString() })
+              .eq('id', match.id).select().single();
+            if (upd) updatedList.push(upd);
+          } else {
+            toInsert.push(nr);
+          }
+        }
+
+        let inserted: any[] = [];
+        if (toInsert.length > 0) {
+          const { data } = await supabase.from('section_records').insert(toInsert).select();
+          inserted = data || [];
+        }
+
+        setRecords(p => {
+          const updMap = new Map(updatedList.map(u => [u.id, u]));
+          const merged = p.map(r => updMap.get(r.id) || r);
+          return [...inserted, ...merged];
+        });
       }
       setImporting(false);
     };
@@ -352,6 +462,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
             <button onClick={() => { if (confirm(`Delete ALL ${records.length} records in ${section.label}? This cannot be undone.`)) clearAll(); }} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-red-200 rounded-xl text-red-600 hover:bg-red-50"><Trash2 size={14} />Clear All</button>
           )}
           <button onClick={() => setFieldsPanel(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Settings size={14} />Fields</button>
+          {stageField && <button onClick={() => setFlowPanel(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><GitBranch size={14} />Stage Flow</button>}
           <button onClick={exportData} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
           <button onClick={() => importRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
           <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && importData(e.target.files[0])} />
@@ -408,13 +519,23 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     </td>
                     {tableFields.map(f => (
                       <td key={f.id} className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
-                        {f.is_id_field ? <span className="font-mono text-xs text-slate-400">{r.data?.[f.field_key]}</span>
+                        {f.id === stageField?.id && stages.length > 0 ? (
+                          <select
+                            value={r.data?.[f.field_key] || ''}
+                            onChange={e => requestStatusChange(r, e.target.value)}
+                            className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[180px]"
+                          >
+                            <option value="">—</option>
+                            {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        ) : f.is_id_field ? <span className="font-mono text-xs text-slate-400">{r.data?.[f.field_key]}</span>
                          : f.field_type === 'boolean' ? (r.data?.[f.field_key] ? '✓' : '—')
                          : String(r.data?.[f.field_key] || '—')}
                       </td>
                     ))}
                     <td className="px-4 py-3">
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {stageField && <button onClick={() => openHistory(r)} title="Stage history" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><Clock size={13} /></button>}
                         <button onClick={() => editRecord(r)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
                         <button onClick={() => deleteRecord(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
                       </div>
@@ -444,7 +565,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
                       <p className="text-xs font-semibold text-slate-800">{r.data?.[nameField?.field_key] || 'Untitled'}</p>
                       {idField && <p className="text-xs text-slate-400 font-mono mt-0.5">{r.data?.[idField.field_key]}</p>}
-                      <select value={stage} onChange={e => updateStage(r.id, e.target.value)} className="mt-2 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
+                      <select value={stage} onChange={e => requestStatusChange(r, e.target.value)} className="mt-2 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
                         {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </div>
@@ -475,6 +596,117 @@ export default function UniversalSection({ section, initialFields, initialRecord
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
               <button onClick={() => setAddOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={saveRecord} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">{editingId ? 'Save Changes' : 'Add Record'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status change popup — date + remarks */}
+      {statusChange && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setStatusChange(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-semibold text-slate-900 mb-1">Stage Change</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              <span className="text-slate-400">{statusChange.record.data?.[stageField?.field_key] || 'None'}</span>
+              <span className="mx-1.5">→</span>
+              <span className="font-medium text-indigo-600">{statusChange.newStatus}</span>
+            </p>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Date</label>
+                <input type="date" value={scDate} onChange={e => setScDate(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                {(() => {
+                  const flow = stageFlows.find(f => f.status_value === statusChange.newStatus);
+                  const df = flow?.date_field_key ? fields.find(f => f.field_key === flow.date_field_key) : null;
+                  return df ? <p className="text-xs text-emerald-600">Will fill: {df.field_label}</p>
+                    : <p className="text-xs text-slate-400">No date field mapped to this stage (set in Stage Flow)</p>;
+                })()}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Remarks <span className="text-slate-400 font-normal">(optional)</span></label>
+                <textarea value={scRemarks} onChange={e => setScRemarks(e.target.value)} rows={2} placeholder="e.g. Passed medical, awaiting biometric slot" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setStatusChange(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={confirmStatusChange} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">Update Stage</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stage history modal */}
+      {historyFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setHistoryFor(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Stage History</h2>
+                <p className="text-xs text-slate-400">{historyFor.data?.[nameField?.field_key] || historyFor.record_id}</p>
+              </div>
+              <button onClick={() => setHistoryFor(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6">
+              {historyRows.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">No stage changes recorded yet</p>
+              ) : (
+                <div className="space-y-0">
+                  {historyRows.map((h, i) => (
+                    <div key={h.id} className="flex gap-3 pb-4 relative">
+                      {i < historyRows.length - 1 && <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-slate-100" />}
+                      <div className="w-3 h-3 rounded-full bg-indigo-500 mt-1 flex-shrink-0 ring-4 ring-indigo-50" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {h.from_status && <><span className="text-xs text-slate-400">{h.from_status}</span><span className="text-slate-300">→</span></>}
+                          <span className="text-sm font-medium text-slate-800">{h.to_status}</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">{new Date(h.change_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{h.changed_by ? ` · ${h.changed_by}` : ''}</p>
+                        {h.remarks && <p className="text-xs text-slate-600 mt-1 bg-slate-50 rounded-lg px-2.5 py-1.5">{h.remarks}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stage Flow settings panel */}
+      {flowPanel && stageField && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setFlowPanel(false)} />
+          <div className="relative bg-white w-[420px] h-full shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Stage Flow</h2>
+                <p className="text-xs text-slate-400">Map each stage to the date field it should fill</p>
+              </div>
+              <button onClick={() => setFlowPanel(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-4 space-y-2">
+              {stages.length === 0 && <p className="text-xs text-slate-400">No stages found. Add options to your {stageField.field_label} field first.</p>}
+              {stages.map((sv: string) => {
+                const flow = stageFlows.find(f => f.status_value === sv);
+                return (
+                  <div key={sv} className="border border-slate-200 rounded-xl p-3">
+                    <p className="text-sm font-medium text-slate-800 mb-2">{sv}</p>
+                    <select
+                      value={flow?.date_field_key || ''}
+                      onChange={e => saveFlow(sv, e.target.value || null)}
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">No date needed for this stage</option>
+                      {dateFields.map(df => <option key={df.field_key} value={df.field_key}>Fills → {df.field_label}</option>)}
+                    </select>
+                  </div>
+                );
+              })}
+              {dateFields.length === 0 && stages.length > 0 && (
+                <p className="text-xs text-amber-600 bg-amber-50 rounded-xl p-3">No date-type fields in this section. Set your date columns to type "date" in Fields, then map them here.</p>
+              )}
             </div>
           </div>
         </div>

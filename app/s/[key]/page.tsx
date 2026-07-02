@@ -6,9 +6,8 @@ import { notFound } from 'next/navigation';
 
 export default async function SectionPage({ params }: { params: { key: string } }) {
   const supabase = createServerClient();
-  const { profile, sections } = await getShellData();
+  const { profile, sections, user } = await getShellData();
 
-  // Find the section definition
   const { data: section } = await supabase
     .from('company_sections')
     .select('*')
@@ -18,13 +17,14 @@ export default async function SectionPage({ params }: { params: { key: string } 
 
   if (!section) notFound();
 
-  // Load field config + records for this section
-  const [{ data: fields }, { data: records }] = await Promise.all([
+  const [{ data: fields }, { data: records }, { data: stageFlows }] = await Promise.all([
     supabase.from('section_field_configs').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key).order('display_order'),
     supabase.from('section_records').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key)
       .order('created_at', { ascending: false }),
+    supabase.from('stage_flows').select('*')
+      .eq('company_id', profile?.company_id).eq('section_key', params.key),
   ]);
 
   return (
@@ -33,7 +33,9 @@ export default async function SectionPage({ params }: { params: { key: string } 
         section={section}
         initialFields={fields || []}
         initialRecords={records || []}
+        initialStageFlows={stageFlows || []}
         companyId={profile?.company_id || ''}
+        userEmail={user?.email || ''}
       />
     </Shell>
   );
