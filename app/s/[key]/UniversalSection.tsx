@@ -33,6 +33,8 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [scRemarks, setScRemarks] = useState('');
   const [historyFor, setHistoryFor] = useState<any>(null);
   const [historyRows, setHistoryRows] = useState<any[]>([]);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
   const [editFieldId, setEditFieldId] = useState<string | null>(null);
   const [efLabel, setEfLabel] = useState('');
   const [efType, setEfType] = useState('text');
@@ -59,6 +61,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
     const matchStage = stageFilter === 'all' || r.data?.[stageField?.field_key] === stageFilter;
     return matchSearch && matchStage;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   // ─── STEP 1: Upload template to configure the section ────────
   const analyzeFile = (file: File) => {
@@ -189,6 +195,23 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
   // ─── Stage tracking ─────────────────────────────────────────
   const remarksField = useMemo(() => fields.find(f => /remark|comment|note/i.test(f.field_label)), [fields]);
+
+  // Returns the date for a record's CURRENT stage (from the mapped date field)
+  const stageDateFor = (r: any) => {
+    const status = r.data?.[stageField?.field_key];
+    if (!status) return null;
+    const flow = stageFlows.find(f => f.status_value === status);
+    if (flow?.date_field_key) {
+      const v = r.data?.[flow.date_field_key];
+      if (v) return v;
+    }
+    return null;
+  };
+
+  const fmtDate = (v: any) => {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
   const dateFields = useMemo(() => fields.filter(f => f.field_type === 'date'), [fields]);
 
   // Called when a status value changes anywhere (inline or kanban)
@@ -473,7 +496,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       <div className="flex gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all fields…" className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="Search all fields…" className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
         </div>
         {stageField && stages.length > 0 && (
           <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white text-slate-700">
@@ -512,7 +535,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                 <th className="px-4 py-3" />
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map(r => (
+                {paged.map(r => (
                   <tr key={r.id} className={`hover:bg-slate-50/50 group ${selected.has(r.id) ? 'bg-indigo-50/40' : ''}`}>
                     <td className="px-4 py-3">
                       <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="rounded cursor-pointer" />
@@ -520,14 +543,17 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     {tableFields.map(f => (
                       <td key={f.id} className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
                         {f.id === stageField?.id && stages.length > 0 ? (
-                          <select
-                            value={r.data?.[f.field_key] || ''}
-                            onChange={e => requestStatusChange(r, e.target.value)}
-                            className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[180px]"
-                          >
-                            <option value="">—</option>
-                            {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
-                          </select>
+                          <div>
+                            <select
+                              value={r.data?.[f.field_key] || ''}
+                              onChange={e => requestStatusChange(r, e.target.value)}
+                              className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[180px]"
+                            >
+                              <option value="">—</option>
+                              {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            {stageDateFor(r) && <p className="text-xs text-slate-400 mt-1">📅 {fmtDate(stageDateFor(r))}</p>}
+                          </div>
                         ) : f.is_id_field ? <span className="font-mono text-xs text-slate-400">{r.data?.[f.field_key]}</span>
                          : f.field_type === 'boolean' ? (r.data?.[f.field_key] ? '✓' : '—')
                          : String(r.data?.[f.field_key] || '—')}
@@ -546,7 +572,19 @@ export default function UniversalSection({ section, initialFields, initialRecord
               </tbody>
             </table>
           </div>
-          {fields.length > 7 && <p className="text-xs text-slate-400 px-4 py-2 border-t border-slate-50">Showing 7 of {fields.length} fields. Full data in export & edit view.</p>}
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-50">
+            <p className="text-xs text-slate-400">
+              Showing {filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, filtered.length)} of {filtered.length} records
+              {fields.length > 7 && <span> · 7 of {fields.length} fields (all in export & edit)</span>}
+            </p>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0} className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-600 disabled:opacity-40 hover:bg-slate-50">← Prev</button>
+                <span className="text-xs text-slate-400 px-1">Page {safePage + 1} / {totalPages}</span>
+                <button onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))} disabled={safePage >= totalPages - 1} className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-600 disabled:opacity-40 hover:bg-slate-50">Next →</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -565,6 +603,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
                       <p className="text-xs font-semibold text-slate-800">{r.data?.[nameField?.field_key] || 'Untitled'}</p>
                       {idField && <p className="text-xs text-slate-400 font-mono mt-0.5">{r.data?.[idField.field_key]}</p>}
+                      {stageDateFor(r) && <p className="text-xs text-indigo-500 mt-1">📅 {fmtDate(stageDateFor(r))}</p>}
                       <select value={stage} onChange={e => requestStatusChange(r, e.target.value)} className="mt-2 w-full text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
                         {stages.map((s: string) => <option key={s} value={s}>{s}</option>)}
                       </select>

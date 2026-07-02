@@ -17,22 +17,32 @@ export default async function SectionPage({ params }: { params: { key: string } 
 
   if (!section) notFound();
 
-  const [{ data: fields }, { data: records }, { data: stageFlows }] = await Promise.all([
+  const [{ data: fields }, { data: stageFlows }] = await Promise.all([
     supabase.from('section_field_configs').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key).order('display_order'),
-    supabase.from('section_records').select('*')
-      .eq('company_id', profile?.company_id).eq('section_key', params.key)
-      .order('created_at', { ascending: false }),
     supabase.from('stage_flows').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key),
   ]);
+
+  // Batched fetch — Supabase caps at 1000 rows per query, so loop until all loaded
+  let records: any[] = [];
+  const CHUNK = 1000;
+  for (let from = 0; ; from += CHUNK) {
+    const { data: batch } = await supabase.from('section_records').select('*')
+      .eq('company_id', profile?.company_id).eq('section_key', params.key)
+      .order('created_at', { ascending: false })
+      .range(from, from + CHUNK - 1);
+    if (!batch || batch.length === 0) break;
+    records = records.concat(batch);
+    if (batch.length < CHUNK) break;
+  }
 
   return (
     <Shell current={`/s/${params.key}`} profile={profile} sections={sections} companyId={profile?.company_id || ''}>
       <UniversalSection
         section={section}
         initialFields={fields || []}
-        initialRecords={records || []}
+        initialRecords={records}
         initialStageFlows={stageFlows || []}
         companyId={profile?.company_id || ''}
         userEmail={user?.email || ''}
