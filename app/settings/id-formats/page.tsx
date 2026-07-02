@@ -7,14 +7,13 @@ export default async function IdFormatsPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+  const { data: sections } = await supabase.from('company_sections').select('*').eq('company_id', profile?.company_id).order('sidebar_order');
 
   if (!profile || profile.role !== 'super_admin') redirect('/dashboard');
 
-  const { data: formats } = await supabase.from('id_formats').select('*').order('entity_type');
-
   return (
-    <Shell current="/settings/id-formats" profile={profile}>
-      <IdFormatsClient initialFormats={formats || []} />
+    <Shell current="/settings/id-formats" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
+      <IdFormatsClient initialSections={sections || []} companyId={profile?.company_id || ''} />
     </Shell>
   );
 }

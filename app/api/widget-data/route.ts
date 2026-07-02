@@ -17,10 +17,18 @@ export async function POST(req: Request) {
           .from('req_headers').select('*, req_lines(*)').eq('company_id', company_id);
         sectionData[key as string] = headers || [];
       } else {
-        const { data } = await supabase
-          .from('section_records').select('*')
-          .eq('company_id', company_id).eq('section_key', key);
-        sectionData[key as string] = data || [];
+        // Batched fetch — Supabase caps at 1000 rows per query
+        let all: any[] = [];
+        const CHUNK = 1000;
+        for (let from = 0; ; from += CHUNK) {
+          const { data } = await supabase.from('section_records').select('*')
+            .eq('company_id', company_id).eq('section_key', key)
+            .range(from, from + CHUNK - 1);
+          if (!data || data.length === 0) break;
+          all = all.concat(data);
+          if (data.length < CHUNK) break;
+        }
+        sectionData[key as string] = all;
       }
     }
 

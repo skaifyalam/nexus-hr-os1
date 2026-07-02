@@ -87,9 +87,21 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
     }
     fields = parsed;
 
+    // Guarantee unique field_keys (AI can produce duplicates from similar headers)
+    const seenKeys = new Set<string>();
+    fields = fields.map((f: any, i: number) => {
+      let key = (f.field_key || `field_${i}`).toString().toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '') || `field_${i}`;
+      let unique = key;
+      let n = 2;
+      while (seenKeys.has(unique)) { unique = `${key}_${n}`; n++; }
+      seenKeys.add(unique);
+      return { ...f, field_key: unique };
+    });
+
     const supabase = createRouteClient();
-    await supabase.from('section_field_configs')
+    const { error: delErr } = await supabase.from('section_field_configs')
       .delete().eq('company_id', company_id).eq('section_key', section_key).eq('is_system', false);
+    if (delErr) return NextResponse.json({ error: `Delete failed: ${delErr.message}` }, { status: 500 });
 
     const rows = fields.map((f: any, i: number) => ({
       company_id, section_key,

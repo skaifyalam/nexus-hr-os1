@@ -106,7 +106,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
         setFields(data.fields);
         setForceSetup(false);
+        setManualBuild(false);
         await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
+        // Confirm persistence — reload from DB
+        const { data: reloaded } = await supabase.from('section_field_configs')
+          .select('*').eq('company_id', companyId).eq('section_key', section.section_key).order('display_order');
+        if (reloaded && reloaded.length > 0) setFields(reloaded);
       } catch (err: any) {
         setError(`Upload failed: ${err.message}`);
       }

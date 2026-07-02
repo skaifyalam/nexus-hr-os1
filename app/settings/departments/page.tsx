@@ -7,6 +7,7 @@ export default async function DepartmentsPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+  const { data: sections } = await supabase.from('company_sections').select('*').eq('company_id', profile?.company_id).order('sidebar_order');
 
   if (!profile || !['super_admin', 'hr_director'].includes(profile.role)) redirect('/dashboard');
 
@@ -14,7 +15,7 @@ export default async function DepartmentsPage() {
   const { data: empCounts } = await supabase.from('employees').select('department_id');
 
   return (
-    <Shell current="/settings/departments" profile={profile}>
+    <Shell current="/settings/departments" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
       <DepartmentsClient initialDepartments={departments || []} empCounts={empCounts || []} />
     </Shell>
   );

@@ -7,6 +7,7 @@ export default async function UsersPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+  const { data: sections } = await supabase.from('company_sections').select('*').eq('company_id', profile?.company_id).order('sidebar_order');
 
   if (!profile || profile.role !== 'super_admin') redirect('/dashboard');
 
@@ -16,7 +17,7 @@ export default async function UsersPage() {
   const { data: userOps } = await supabase.from('user_operations').select('*');
 
   return (
-    <Shell current="/settings/users" profile={profile}>
+    <Shell current="/settings/users" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
       <UsersClient
         initialProfiles={profiles || []}
         operations={operations || []}

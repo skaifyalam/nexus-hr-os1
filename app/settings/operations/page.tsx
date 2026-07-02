@@ -7,6 +7,7 @@ export default async function OperationsSettingsPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+  const { data: sections } = await supabase.from('company_sections').select('*').eq('company_id', profile?.company_id).order('sidebar_order');
 
   if (!profile || !['super_admin', 'hr_director'].includes(profile.role)) {
     redirect('/dashboard');
@@ -17,7 +18,7 @@ export default async function OperationsSettingsPage() {
   const { data: employeeCounts } = await supabase.from('employees').select('operation_id, current_project_id');
 
   return (
-    <Shell current="/settings/operations" profile={profile}>
+    <Shell current="/settings/operations" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
       <OperationsClient
         initialOperations={operations || []}
         initialProjects={projects || []}
