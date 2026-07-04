@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
-  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2,
+  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Assistant from './Assistant';
@@ -283,6 +283,12 @@ export default function Shell({
           </Link>
           <Link href="/leave" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/leave') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
             <Palmtree size={14} />Leave
+          </Link>
+          <Link href="/attendance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/attendance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <Clock size={14} />Attendance
+          </Link>
+          <Link href="/performance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/performance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <Award size={14} />Performance
           </Link>
 
           {/* Add Section */}
