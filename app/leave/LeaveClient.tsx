@@ -2,8 +2,9 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, X, Check, Clock, Calendar, Settings, Trash2, CheckCircle2,
-  XCircle, Palmtree, ChevronDown, Edit2, Layers,
+  XCircle, Palmtree, ChevronDown, Edit2, Layers, Upload, Download, Loader,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { createClient } from '@/lib/supabase/client';
 
 const COLORS = ['indigo', 'amber', 'emerald', 'rose', 'sky', 'violet', 'teal', 'slate'];
@@ -33,6 +34,8 @@ export default function LeaveClient({ initialTypes, initialRequests, initialPoli
   const [etName, setEtName] = useState('');
   const [etDays, setEtDays] = useState('');
   const [etColor, setEtColor] = useState('indigo');
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
   const supabase = createClient();
 
   // Employee name/code helpers
@@ -96,6 +99,126 @@ export default function LeaveClient({ initialTypes, initialRequests, initialPoli
   const deleteRequest = async (id: string) => {
     await supabase.from('leave_requests').delete().eq('id', id);
     setRequests(p => p.filter(r => r.id !== id));
+  };
+
+  // ─── Bulk import from Excel (AI-free fuzzy column mapping) ───
+  const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const matchCol = (keys: string[], patterns: string[]) => {
+    for (const p of patterns) {
+      const hit = keys.find(k => norm(k) === norm(p));
+      if (hit) return hit;
+    }
+    for (const p of patterns) {
+      const hit = keys.find(k => norm(k).includes(norm(p)) || norm(p).includes(norm(k)));
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  const importLeave = (file: File) => {
+    setImporting(true); setImportMsg('Reading file…');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (rows.length === 0) { setImportMsg('No rows found in the file.'); setImporting(false); return; }
+
+        const keys = Object.keys(rows[0]);
+        // Map columns by fuzzy match to leave concepts
+        const cEmp = matchCol(keys, ['employee name', 'name', 'employee', 'staff']);
+        const cCode = matchCol(keys, ['employee code', 'employee id', 'emp id', 'code', 'iqama', 'id']);
+        const cType = matchCol(keys, ['leave type', 'type', 'category']);
+        const cStart = matchCol(keys, ['start date', 'from', 'start', 'date from']);
+        const cEnd = matchCol(keys, ['end date', 'to', 'end', 'date to']);
+        const cDays = matchCol(keys, ['days', 'day count', 'duration', 'no of days']);
+        const cStatus = matchCol(keys, ['status', 'state', 'approval']);
+        const cReason = matchCol(keys, ['reason', 'remarks', 'notes', 'comment']);
+
+        setImportMsg(`Mapping ${rows.length} rows…`);
+
+        const toDate = (v: any) => {
+          if (!v) return null;
+          if (v instanceof Date) return v.toISOString().split('T')[0];
+          const d = new Date(v);
+          return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+        };
+        const daysCalc = (a: string | null, b: string | null) => {
+          if (!a || !b) return 1;
+          const n = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000) + 1;
+          return n > 0 ? n : 1;
+        };
+
+        // Build a lookup of employees by normalized name and code
+        const empByName = new Map(employees.map(e => [norm(empName(e)), e]));
+        const empByCode = new Map(employees.map(e => [norm(empCode(e)), e]));
+        const typeByName = new Map(types.map(t => [norm(t.name), t]));
+
+        const records = rows.map(row => {
+          const start = cStart ? toDate(row[cStart]) : null;
+          const end = cEnd ? toDate(row[cEnd]) : start;
+          const nameVal = cEmp ? String(row[cEmp] || '') : '';
+          const codeVal = cCode ? String(row[cCode] || '') : '';
+          const emp = empByCode.get(norm(codeVal)) || empByName.get(norm(nameVal));
+          const typeVal = cType ? String(row[cType] || '') : '';
+          const type = typeByName.get(norm(typeVal));
+          const rawStatus = cStatus ? String(row[cStatus] || '').toLowerCase() : 'approved';
+          const status = /approv|accept|yes|paid/.test(rawStatus) ? 'approved'
+            : /reject|declin|no/.test(rawStatus) ? 'rejected'
+            : /pend|await/.test(rawStatus) ? 'pending' : 'approved';
+          return {
+            company_id: companyId,
+            employee_record_id: emp?.id || null,
+            employee_name: emp ? empName(emp) : (nameVal || 'Unknown'),
+            employee_code: emp ? empCode(emp) : codeVal,
+            leave_type_id: type?.id || null,
+            leave_type_name: type?.name || typeVal || 'Leave',
+            start_date: start || new Date().toISOString().split('T')[0],
+            end_date: end || start || new Date().toISOString().split('T')[0],
+            days_count: cDays && Number(row[cDays]) > 0 ? Number(row[cDays]) : daysCalc(start, end),
+            reason: cReason ? String(row[cReason] || '') : '',
+            status,
+            requested_by: userEmail,
+          };
+        });
+
+        setImportMsg(`Saving ${records.length} records…`);
+        // Insert in chunks of 500
+        let saved: any[] = [];
+        for (let i = 0; i < records.length; i += 500) {
+          const chunk = records.slice(i, i + 500);
+          const { data } = await supabase.from('leave_requests').insert(chunk).select();
+          if (data) saved = saved.concat(data);
+        }
+        setRequests(p => [...saved, ...p]);
+        const matched = records.filter(r => r.employee_record_id).length;
+        setImportMsg(`Imported ${saved.length} leave records (${matched} matched to employees).`);
+        setTimeout(() => { setImportMsg(''); }, 5000);
+      } catch (err: any) {
+        setImportMsg(`Import failed: ${err.message}`);
+      }
+      setImporting(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const exportLeave = () => {
+    const rows = requests.map(r => ({
+      'Employee Name': r.employee_name,
+      'Employee Code': r.employee_code,
+      'Leave Type': r.leave_type_name,
+      'Start Date': r.start_date,
+      'End Date': r.end_date,
+      'Days': r.days_count,
+      'Status': r.status,
+      'Reason': r.reason || '',
+      'Decided By': r.decided_by || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Leave');
+    XLSX.writeFile(wb, `leave-records-${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // Leave type management
@@ -183,11 +306,22 @@ export default function LeaveClient({ initialTypes, initialRequests, initialPoli
           <p className="text-sm text-slate-500 mt-0.5">{requests.length} requests · {pendingCount} awaiting approval</p>
         </div>
         <div className="flex gap-2">
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" id="leave-import" onChange={e => e.target.files?.[0] && importLeave(e.target.files[0])} />
+          <button onClick={() => document.getElementById('leave-import')?.click()} disabled={importing} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+            {importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import
+          </button>
+          <button onClick={exportLeave} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
           <button onClick={() => setPolOpen(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Settings size={14} />Policies</button>
           <button onClick={() => setTypesOpen(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Palmtree size={14} />Leave Types</button>
           <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />Request Leave</button>
         </div>
       </div>
+
+      {importMsg && (
+        <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-indigo-700 flex items-center gap-2">
+          {importing && <Loader size={14} className="animate-spin" />}{importMsg}
+        </div>
+      )}
 
       {/* Leave type summary chips */}
       {types.length > 0 && (
