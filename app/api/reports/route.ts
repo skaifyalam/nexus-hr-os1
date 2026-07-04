@@ -26,7 +26,6 @@ export async function POST(req: Request) {
     const { prompt, report_type, company_id, user_email } = await req.json();
     const supabase = createRouteClient();
 
-    const supabase = createRouteClient();
 
     // Fetch ALL sections + their fields for this company
     const { data: sectionList } = await supabase.from('company_sections')
