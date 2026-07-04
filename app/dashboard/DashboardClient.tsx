@@ -57,9 +57,23 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
   const [wDisplay, setWDisplay] = useState('card');
   const [wColor, setWColor] = useState('indigo');
 
-  const sectionFields = (key: string) => allFields.filter(f => f.section_key === key);
+  const sectionFields = (key: string) => {
+    if (key === 'leave') return [
+      { field_key: 'status', field_label: 'Status', field_type: 'dropdown', options: ['pending', 'approved', 'rejected'] },
+      { field_key: 'leave_type', field_label: 'Leave Type', field_type: 'text' },
+      { field_key: 'employee', field_label: 'Employee', field_type: 'text' },
+      { field_key: 'days', field_label: 'Days', field_type: 'number' },
+    ];
+    return allFields.filter(f => f.section_key === key);
+  };
+
+  // All selectable dashboard sources = real sections + Leave (table-based module)
+  const dashboardSources = [
+    ...sections,
+    { section_key: 'leave', label: 'Leave' },
+  ];
   const fieldOptions = (key: string, fieldKey: string) => {
-    const f = allFields.find(x => x.section_key === key && x.field_key === fieldKey);
+    const f = sectionFields(key).find((x: any) => x.field_key === fieldKey);
     return f?.options || [];
   };
 
@@ -113,7 +127,7 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
     setWidgets(p => p.filter(w => w.id !== id));
   };
 
-  const sectionLabel = (key: string) => sections.find(s => s.section_key === key)?.label || key;
+  const sectionLabel = (key: string) => dashboardSources.find(s => s.section_key === key)?.label || key;
 
   // Auto-suggest a title
   useEffect(() => {
@@ -244,7 +258,7 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
                 <label className="text-sm font-medium text-slate-700">Which section?</label>
                 <select value={wSection} onChange={e => { setWSection(e.target.value); setWField(''); setWFilterField(''); }} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   <option value="">Select section…</option>
-                  {sections.map(s => <option key={s.section_key} value={s.section_key}>{s.label}</option>)}
+                  {dashboardSources.map(s => <option key={s.section_key} value={s.section_key}>{s.label}</option>)}
                 </select>
               </div>
 

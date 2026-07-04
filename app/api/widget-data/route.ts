@@ -16,6 +16,18 @@ export async function POST(req: Request) {
         const { data: headers } = await supabase
           .from('req_headers').select('*, req_lines(*)').eq('company_id', company_id);
         sectionData[key as string] = headers || [];
+      } else if (key === 'leave') {
+        // Leave lives in its own table — map to the same {data:{...}} shape widgets expect
+        const { data: lv } = await supabase
+          .from('leave_requests').select('*').eq('company_id', company_id);
+        sectionData[key as string] = (lv || []).map((r: any) => ({
+          data: {
+            status: r.status,
+            leave_type: r.leave_type_name,
+            employee: r.employee_name,
+            days: r.days_count,
+          },
+        }));
       } else {
         // Batched fetch — Supabase caps at 1000 rows per query
         let all: any[] = [];
