@@ -10,6 +10,21 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import Assistant from './Assistant';
 
+const FEATURE_ICONS: Record<string, any> = {
+  compliance: Globe, analytics: TrendingUp, structure: GitBranch,
+  leave: Palmtree, attendance: Clock, performance: Award, documents: FileText,
+};
+
+const DEFAULT_FEATURES = [
+  { key: 'compliance', label: 'Compliance', href: '/compliance' },
+  { key: 'analytics', label: 'Delay Analysis', href: '/analytics' },
+  { key: 'structure', label: 'Org Structure', href: '/structure' },
+  { key: 'leave', label: 'Leave', href: '/leave' },
+  { key: 'attendance', label: 'Attendance', href: '/attendance' },
+  { key: 'performance', label: 'Performance', href: '/performance' },
+  { key: 'documents', label: 'Documents', href: '/documents' },
+];
+
 const ICON_MAP: Record<string, any> = {
   dashboard: LayoutDashboard, employees: Users, requisitions: Briefcase,
   recruitment: GitBranch, agency: Building2, brain: Brain,
@@ -32,7 +47,7 @@ export default function Shell({
   current, profile, children, sections = [], companyId = '',
 }: {
   current: string;
-  profile: { full_name?: string; email?: string; role?: string } | null;
+  profile: { id?: string; full_name?: string; email?: string; role?: string; company_name?: string } | null;
   children: React.ReactNode;
   sections?: any[];
   companyId?: string;
@@ -81,6 +96,76 @@ export default function Shell({
   const [dragSec, setDragSec] = useState<string | null>(null);
   const [dragOverSec, setDragOverSec] = useState<string | null>(null);
   const [renamingSec, setRenamingSec] = useState<string | null>(null);
+
+  // Feature links (Compliance, Leave, etc.) — reorderable + renamable via localStorage
+  const [features, setFeatures] = useState(DEFAULT_FEATURES);
+  const [dragFeature, setDragFeature] = useState<string | null>(null);
+  const [dragOverFeature, setDragOverFeature] = useState<string | null>(null);
+  const [renamingFeature, setRenamingFeature] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!companyId) return;
+    (async () => {
+      // Shared labels (company-wide) + this user's personal order
+      const [{ data: labels }, { data: orderRow }] = await Promise.all([
+        supabase.from('feature_labels').select('feature_key, label').eq('company_id', companyId),
+        supabase.from('user_feature_order').select('ordered_keys').eq('company_id', companyId).maybeSingle(),
+      ]);
+
+      let list = DEFAULT_FEATURES.map(f => {
+        const custom = labels?.find((l: any) => l.feature_key === f.key);
+        return { ...f, label: custom?.label || f.label };
+      });
+
+      // Apply this user's saved order
+      const savedOrder: string[] = orderRow?.ordered_keys || [];
+      if (savedOrder.length > 0) {
+        list = [...list].sort((a, b) => {
+          const ia = savedOrder.indexOf(a.key), ib = savedOrder.indexOf(b.key);
+          if (ia === -1 && ib === -1) return 0;
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        });
+      }
+      setFeatures(list);
+    })();
+  }, [companyId]);
+
+  const isSuperAdmin = profile?.role === 'super_admin';
+
+  const saveUserOrder = async (list: any[]) => {
+    if (!companyId) return;
+    const keys = list.map(f => f.key);
+    await supabase.from('user_feature_order').upsert(
+      { user_id: profile?.id, company_id: companyId, ordered_keys: keys, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,company_id' }
+    );
+  };
+
+  const reorderFeature = (targetKey: string) => {
+    setDragOverFeature(null);
+    if (!dragFeature || dragFeature === targetKey) { setDragFeature(null); return; }
+    const list = [...features];
+    const from = list.findIndex(f => f.key === dragFeature);
+    const to = list.findIndex(f => f.key === targetKey);
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    setFeatures(list);
+    saveUserOrder(list); // per-user, follows them across devices
+    setDragFeature(null);
+  };
+
+  const renameFeature = async (key: string, newLabel: string) => {
+    const label = newLabel.trim();
+    setRenamingFeature(null);
+    if (!label || !isSuperAdmin) return; // only super admin can rename (shared for all)
+    setFeatures(features.map(f => f.key === key ? { ...f, label } : f));
+    await supabase.from('feature_labels').upsert(
+      { company_id: companyId, feature_key: key, label },
+      { onConflict: 'company_id,feature_key' }
+    );
+  };
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 224px
 
   // Load saved width once on mount
@@ -240,7 +325,7 @@ export default function Shell({
                   ) : (
                     <Link
                       href={href}
-                      onDoubleClick={e => { e.preventDefault(); setRenamingSec(s.id); }}
+                      onDoubleClick={e => { if (isSuperAdmin) { e.preventDefault(); setRenamingSec(s.id); } }}
                       className={`flex items-center gap-2.5 flex-1 min-w-0 pr-2 py-2 text-xs font-medium ${isActive(href) ? 'text-white' : 'text-slate-600'}`}
                     >
                       <Icon size={14} className="flex-shrink-0" />
@@ -250,10 +335,12 @@ export default function Shell({
 
                   {!isEditing && (
                     <div className="flex items-center pr-1.5 opacity-0 group-hover/sec:opacity-100 transition-opacity">
-                      <button onClick={(e) => { e.preventDefault(); setRenamingSec(s.id); }} title="Rename" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-slate-200 text-slate-400 hover:text-slate-600'}`}>
-                        <Edit2 size={11} />
-                      </button>
-                      {!s.is_core && (
+                      {isSuperAdmin && (
+                        <button onClick={(e) => { e.preventDefault(); setRenamingSec(s.id); }} title="Rename (applies to everyone)" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-slate-200 text-slate-400 hover:text-slate-600'}`}>
+                          <Edit2 size={11} />
+                        </button>
+                      )}
+                      {!s.is_core && isSuperAdmin && (
                         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSection(s); }} title="Delete (if empty)" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-red-50 text-slate-400 hover:text-red-500'}`}>
                           <X size={11} />
                         </button>
@@ -265,34 +352,68 @@ export default function Shell({
             );
           })}
 
-          {/* Fixed AI features */}
+          {/* Fixed: Company Brain + AI Reports (never movable/renamable) */}
           <Link href="/brain" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/brain') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
             <Brain size={14} />Company Brain
           </Link>
           <Link href="/reports" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/reports') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
             <BarChart3 size={14} />AI Reports
           </Link>
-          <Link href="/compliance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/compliance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <Globe size={14} />Compliance
-          </Link>
-          <Link href="/analytics" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/analytics') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <TrendingUp size={14} />Delay Analysis
-          </Link>
-          <Link href="/structure" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/structure') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <GitBranch size={14} />Org Structure
-          </Link>
-          <Link href="/leave" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/leave') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <Palmtree size={14} />Leave
-          </Link>
-          <Link href="/attendance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/attendance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <Clock size={14} />Attendance
-          </Link>
-          <Link href="/performance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/performance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <Award size={14} />Performance
-          </Link>
-          <Link href="/documents" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/documents') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <FileText size={14} />Documents
-          </Link>
+
+          {/* Movable + renamable feature links */}
+          {features.map(f => {
+            const Icon = FEATURE_ICONS[f.key] || Folder;
+            const isEditing = renamingFeature === f.key;
+            return (
+              <div key={f.key} className="relative">
+                {dragOverFeature === f.key && dragFeature !== f.key && (
+                  <div className="absolute -top-1 left-2 right-2 h-0.5 bg-indigo-500 rounded-full z-10" />
+                )}
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragOverFeature(f.key); }}
+                  onDragLeave={() => setDragOverFeature(d => d === f.key ? null : d)}
+                  onDrop={() => reorderFeature(f.key)}
+                  className={`group/feat flex items-center rounded-xl transition-all ${dragFeature === f.key ? 'opacity-30' : ''} ${isActive(f.href) ? 'bg-indigo-600 shadow-sm' : 'hover:bg-slate-100'}`}
+                >
+                  <div
+                    draggable
+                    onDragStart={() => setDragFeature(f.key)}
+                    onDragEnd={() => { setDragFeature(null); setDragOverFeature(null); }}
+                    title="Drag to reorder"
+                    className={`cursor-grab active:cursor-grabbing px-1 py-2 flex-shrink-0 opacity-0 group-hover/feat:opacity-100 transition-opacity ${isActive(f.href) ? 'text-white/50' : 'text-slate-300 hover:text-slate-500'}`}
+                  >
+                    <GripVertical size={12} />
+                  </div>
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      defaultValue={f.label}
+                      onBlur={e => renameFeature(f.key, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') renameFeature(f.key, (e.target as HTMLInputElement).value);
+                        if (e.key === 'Escape') setRenamingFeature(null);
+                      }}
+                      className="flex-1 bg-white border border-indigo-300 rounded-lg px-2 py-1 text-xs mr-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700"
+                    />
+                  ) : (
+                    <Link
+                      href={f.href}
+                      onDoubleClick={e => { if (isSuperAdmin) { e.preventDefault(); setRenamingFeature(f.key); } }}
+                      className={`flex items-center gap-2.5 flex-1 min-w-0 pr-2 py-2 text-xs font-medium ${isActive(f.href) ? 'text-white' : 'text-slate-600'}`}
+                    >
+                      <Icon size={14} className="flex-shrink-0" />
+                      <span className="flex-1 truncate">{f.label}</span>
+                    </Link>
+                  )}
+                  {!isEditing && isSuperAdmin && (
+                    <button onClick={(e) => { e.preventDefault(); setRenamingFeature(f.key); }} title="Rename (applies to everyone)" className={`mr-1.5 p-1 rounded opacity-0 group-hover/feat:opacity-100 transition-opacity ${isActive(f.href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-slate-200 text-slate-400 hover:text-slate-600'}`}>
+                      <Edit2 size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
 
           {/* Add Section */}
           {!addOpen ? (
