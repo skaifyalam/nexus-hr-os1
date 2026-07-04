@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
-  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard,
+  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Assistant from './Assistant';
@@ -80,6 +80,15 @@ export default function Shell({
 
   const [dragSec, setDragSec] = useState<string | null>(null);
   const [dragOverSec, setDragOverSec] = useState<string | null>(null);
+  const [renamingSec, setRenamingSec] = useState<string | null>(null);
+
+  const renameSection = async (s: any, newLabel: string) => {
+    const label = newLabel.trim();
+    setRenamingSec(null);
+    if (!label || label === s.label) return;
+    await supabase.from('company_sections').update({ label }).eq('id', s.id);
+    setSecs(p => p.map(x => x.id === s.id ? { ...x, label } : x));
+  };
 
   const reorderSection = async (targetId: string) => {
     setDragOverSec(null);
@@ -157,33 +166,67 @@ export default function Shell({
             <LayoutDashboard size={14} />Dashboard
           </Link>
 
-          {/* All sections from company_sections (Employees, Recruitment, custom) */}
+          {/* All sections — drag handle to reorder, double-click to rename */}
           {secs.map(s => {
             const Icon = ICON_MAP[s.icon] || Folder;
             const href = s.section_key === 'requisition' ? '/requisitions' : `/s/${s.section_key}`;
+            const isEditing = renamingSec === s.id;
             return (
-              <div
-                key={s.id}
-                draggable
-                onDragStart={() => setDragSec(s.id)}
-                onDragOver={e => { e.preventDefault(); setDragOverSec(s.id); }}
-                onDragLeave={() => setDragOverSec(d => d === s.id ? null : d)}
-                onDrop={() => reorderSection(s.id)}
-                className={`group/sec relative rounded-xl ${dragOverSec === s.id ? 'ring-2 ring-indigo-400' : ''} ${dragSec === s.id ? 'opacity-40' : ''}`}
-              >
-                <Link href={href} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive(href) ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  <Icon size={14} />
-                  <span className="flex-1 truncate">{s.label}</span>
-                  {!s.is_core && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSection(s); }}
-                      title="Delete section (only if empty)"
-                      className={`opacity-0 group-hover/sec:opacity-100 p-0.5 rounded transition-all ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-red-50 text-slate-400 hover:text-red-500'}`}
+              <div key={s.id} className="relative">
+                {/* Drop indicator line */}
+                {dragOverSec === s.id && dragSec !== s.id && (
+                  <div className="absolute -top-1 left-2 right-2 h-0.5 bg-indigo-500 rounded-full z-10" />
+                )}
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragOverSec(s.id); }}
+                  onDragLeave={() => setDragOverSec(d => d === s.id ? null : d)}
+                  onDrop={() => reorderSection(s.id)}
+                  className={`group/sec flex items-center rounded-xl transition-all ${dragSec === s.id ? 'opacity-30' : ''} ${isActive(href) ? 'bg-indigo-600 shadow-sm' : 'hover:bg-slate-100'}`}
+                >
+                  {/* Drag handle — the only draggable element */}
+                  <div
+                    draggable
+                    onDragStart={() => setDragSec(s.id)}
+                    onDragEnd={() => { setDragSec(null); setDragOverSec(null); }}
+                    title="Drag to reorder"
+                    className={`cursor-grab active:cursor-grabbing px-1 py-2 flex-shrink-0 opacity-0 group-hover/sec:opacity-100 transition-opacity ${isActive(href) ? 'text-white/50' : 'text-slate-300 hover:text-slate-500'}`}
+                  >
+                    <GripVertical size={12} />
+                  </div>
+
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      defaultValue={s.label}
+                      onBlur={e => renameSection(s, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') renameSection(s, (e.target as HTMLInputElement).value);
+                        if (e.key === 'Escape') setRenamingSec(null);
+                      }}
+                      className="flex-1 bg-white border border-indigo-300 rounded-lg px-2 py-1 text-xs mr-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700"
+                    />
+                  ) : (
+                    <Link
+                      href={href}
+                      onDoubleClick={e => { if (!s.is_core) { e.preventDefault(); setRenamingSec(s.id); } }}
+                      className={`flex items-center gap-2.5 flex-1 min-w-0 pr-2 py-2 text-xs font-medium ${isActive(href) ? 'text-white' : 'text-slate-600'}`}
                     >
-                      <X size={12} />
-                    </button>
+                      <Icon size={14} className="flex-shrink-0" />
+                      <span className="flex-1 truncate">{s.label}</span>
+                    </Link>
                   )}
-                </Link>
+
+                  {!s.is_core && !isEditing && (
+                    <div className="flex items-center pr-1.5 opacity-0 group-hover/sec:opacity-100 transition-opacity">
+                      <button onClick={(e) => { e.preventDefault(); setRenamingSec(s.id); }} title="Rename" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-slate-200 text-slate-400 hover:text-slate-600'}`}>
+                        <Edit2 size={11} />
+                      </button>
+                      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSection(s); }} title="Delete (if empty)" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-red-50 text-slate-400 hover:text-red-500'}`}>
+                        <X size={11} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
