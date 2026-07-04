@@ -26,121 +26,88 @@ export async function POST(req: Request) {
     const { prompt, report_type, company_id, user_email } = await req.json();
     const supabase = createRouteClient();
 
-    // Fetch all relevant data in parallel
-    const [
-      { data: employees },
-      { data: candidates },
-      { data: requisitions },
-      { data: leaves },
-      { data: performances },
-      { data: brainDocs },
-    ] = await Promise.all([
-      supabase.from('employees').select('employee_id, first_name, last_name, department_id, job_title, nationality, status, salary, joining_date, iqama_expiry, passport_expiry, operations(name, country_code), departments(name)'),
-      supabase.from('candidates').select('candidate_id, first_name, last_name, nationality, stage, operations(country_code), requisitions(position)'),
-      supabase.from('requisitions').select('requisition_id, position, headcount, status, required_by, operations(country_code), departments(name)'),
-      supabase.from('leave_requests').select('leave_id, status, days_count, start_date, end_date'),
-      supabase.from('performance_reviews').select('review_period, kpi_score, manager_rating, status'),
-      supabase.from('brain_documents').select('title, document_type, ai_key_points'),
-    ]);
+    const supabase = createRouteClient();
+
+    // Fetch ALL sections + their fields for this company
+    const { data: sectionList } = await supabase.from('company_sections')
+      .select('*').eq('company_id', company_id).order('sidebar_order');
+    const { data: allFields } = await supabase.from('section_field_configs')
+      .select('*').eq('company_id', company_id);
+
+    // Batch-fetch all records per section (past 1000 cap)
+    const sectionRecords: Record<string, any[]> = {};
+    for (const sec of sectionList || []) {
+      let all: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data } = await supabase.from('section_records').select('data')
+          .eq('company_id', company_id).eq('section_key', sec.section_key)
+          .range(from, from + 999);
+        if (!data || data.length === 0) break;
+        all = all.concat(data);
+        if (data.length < 1000) break;
+      }
+      sectionRecords[sec.section_key] = all;
+    }
+
+    // Helper: find a field key by fuzzy label match within a section
+    const findField = (sectionKey: string, patterns: RegExp[]) => {
+      const fs = (allFields || []).filter((f: any) => f.section_key === sectionKey);
+      for (const p of patterns) {
+        const hit = fs.find((f: any) => p.test(f.field_label));
+        if (hit) return hit.field_key;
+      }
+      return null;
+    };
+
+    const breakdown = (records: any[], fieldKey: string | null) => {
+      if (!fieldKey) return [];
+      const g: Record<string, number> = {};
+      records.forEach(r => {
+        const v = String(r.data?.[fieldKey] ?? 'Unknown') || 'Unknown';
+        g[v] = (g[v] || 0) + 1;
+      });
+      return Object.entries(g).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([label, count]) => ({ label, count }));
+    };
+
+    // Build a snapshot dynamically for every section
+    const sectionsSnapshot = (sectionList || []).map((sec: any) => {
+      const records = sectionRecords[sec.section_key] || [];
+      const natField = findField(sec.section_key, [/nationalit/i, /country/i]);
+      const statusField = findField(sec.section_key, [/^status/i, /stage/i, /employment/i]);
+      const deptField = findField(sec.section_key, [/department/i, /division/i]);
+      const projField = findField(sec.section_key, [/project/i, /operation/i, /location/i]);
+      const catField = findField(sec.section_key, [/category/i, /position/i, /designation|role|title/i]);
+      const agencyField = findField(sec.section_key, [/agency/i, /agent/i]);
+      return {
+        section: sec.label,
+        total_records: records.length,
+        by_status: breakdown(records, statusField),
+        by_nationality: breakdown(records, natField),
+        by_department: breakdown(records, deptField),
+        by_project: breakdown(records, projField),
+        by_category: breakdown(records, catField),
+        by_agency: breakdown(records, agencyField),
+      };
+    });
+
+    const { data: brainDocs } = await supabase.from('brain_documents')
+      .select('title').eq('company_id', company_id);
 
     const today = new Date();
-    const daysUntil = (d: string) => d ? Math.ceil((new Date(d).getTime() - today.getTime()) / 86400000) : 999;
-
-    const emp = employees || [];
-    const cands = candidates || [];
-    const reqs = requisitions || [];
-    const lv = leaves || [];
-
-    // Build rich data snapshot
     const snapshot = {
       generated_at: today.toISOString(),
       report_type,
-
-      // Headcount
-      total_employees: emp.length,
-      active: emp.filter(e => e.status === 'active').length,
-      on_leave: emp.filter(e => e.status === 'on_leave').length,
-      terminated: emp.filter(e => e.status === 'terminated').length,
-
-      // By department
-      by_department: Object.entries(
-        emp.reduce((acc: any, e: any) => {
-          const dept = e.departments?.name || 'Unknown';
-          acc[dept] = (acc[dept] || 0) + 1;
-          return acc;
-        }, {})
-      ).map(([dept, count]) => ({ dept, count })),
-
-      // By country
-      by_country: Object.entries(
-        emp.reduce((acc: any, e: any) => {
-          const country = e.operations?.country_code || 'Unknown';
-          acc[country] = (acc[country] || 0) + 1;
-          return acc;
-        }, {})
-      ).map(([country, count]) => ({ country, count })),
-
-      // By nationality
-      by_nationality: Object.entries(
-        emp.reduce((acc: any, e: any) => {
-          acc[e.nationality || 'Unknown'] = (acc[e.nationality || 'Unknown'] || 0) + 1;
-          return acc;
-        }, {})
-      ).sort((a: any, b: any) => (b[1] as number) - (a[1] as number)).slice(0, 10)
-        .map(([nat, count]) => ({ nationality: nat, count })),
-
-      // Document expiries
-      critical_expiries: emp
-        .flatMap((e: any) => [
-          { name: `${e.first_name} ${e.last_name}`, doc: 'Iqama', days: daysUntil(e.iqama_expiry), expiry: e.iqama_expiry },
-          { name: `${e.first_name} ${e.last_name}`, doc: 'Passport', days: daysUntil(e.passport_expiry), expiry: e.passport_expiry },
-        ])
-        .filter(x => x.days <= 90 && x.days > 0)
-        .sort((a, b) => a.days - b.days),
-
-      // Salary summary
-      avg_salary: emp.length ? Math.round(emp.reduce((s: number, e: any) => s + (Number(e.salary) || 0), 0) / emp.length) : 0,
-      total_salary_monthly: emp.reduce((s: number, e: any) => s + (Number(e.salary) || 0), 0),
-
-      // Recruitment
-      total_candidates: cands.length,
-      pipeline_by_stage: ['selection','offer_issued','offer_accepted','visa_pending','visa_allocated','medical','biometric','skill_test','visa_stamping','visa_stamped','ticket_booked','mobilized','onboarded'].map(stage => ({
-        stage, count: cands.filter((c: any) => c.stage === stage).length,
-      })).filter(s => s.count > 0),
-      open_requisitions: reqs.filter(r => r.status === 'open' || r.status === 'in_progress').length,
-      filled_requisitions: reqs.filter(r => r.status === 'filled').length,
-
-      // Leave
-      total_leave_requests: lv.length,
-      approved_leaves: lv.filter(l => l.status === 'approved').length,
-      pending_leaves: lv.filter(l => l.status === 'pending').length,
-      total_leave_days: lv.filter(l => l.status === 'approved').reduce((s: number, l: any) => s + (l.days_count || 0), 0),
-
-      // Performance
-      total_reviews: (performances || []).length,
-      avg_kpi: (performances || []).length
-        ? Math.round((performances || []).reduce((s: number, p: any) => s + (Number(p.kpi_score) || 0), 0) / (performances || []).length * 10) / 10
-        : 0,
-
-      // Company Brain docs
+      company_sections: sectionsSnapshot,
       loaded_policies: (brainDocs || []).map((d: any) => d.title),
     };
 
     // Generate report title from prompt
     const titlePrompt = `Generate a short professional report title (max 8 words) for this HR report request: "${prompt}". Return ONLY the title text, nothing else.`;
-    const titleRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: titlePrompt }] }],
-          generationConfig: { maxOutputTokens: 30 },
-        }),
-      }
-    );
-    const titleData = await titleRes.json();
-    const title = titleData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || prompt.slice(0, 50);
+    const { text: titleText } = await callGemini({
+      contents: [{ role: 'user', parts: [{ text: titlePrompt }] }],
+      generationConfig: { maxOutputTokens: 30 },
+    });
+    const title = titleText?.trim() || prompt.slice(0, 50);
 
     // Generate the actual report
     const reportPrompt = `Generate a ${report_type} HR report for this request: "${prompt}"
