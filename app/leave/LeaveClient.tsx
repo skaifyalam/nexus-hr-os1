@@ -2,7 +2,7 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, X, Check, Clock, Calendar, Settings, Trash2, CheckCircle2,
-  XCircle, Palmtree, ChevronDown,
+  XCircle, Palmtree, ChevronDown, Edit2, Layers,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -20,14 +20,19 @@ const daysBetween = (a: string, b: string) => {
   return d > 0 ? d : 0;
 };
 
-export default function LeaveClient({ initialTypes, initialRequests, employees, empFields, companyId, userEmail }: {
-  initialTypes: any[]; initialRequests: any[]; employees: any[]; empFields: any[]; companyId: string; userEmail: string;
+export default function LeaveClient({ initialTypes, initialRequests, initialPolicies = [], employees, empFields, companyId, userEmail }: {
+  initialTypes: any[]; initialRequests: any[]; initialPolicies?: any[]; employees: any[]; empFields: any[]; companyId: string; userEmail: string;
 }) {
   const [types, setTypes] = useState(initialTypes);
+  const [policies, setPolicies] = useState(initialPolicies);
   const [requests, setRequests] = useState(initialRequests);
   const [tab, setTab] = useState<'pending' | 'approved' | 'all'>('pending');
   const [addOpen, setAddOpen] = useState(false);
   const [typesOpen, setTypesOpen] = useState(false);
+  const [editingType, setEditingType] = useState<string | null>(null);
+  const [etName, setEtName] = useState('');
+  const [etDays, setEtDays] = useState('');
+  const [etColor, setEtColor] = useState('indigo');
   const supabase = createClient();
 
   // Employee name/code helpers
@@ -54,11 +59,13 @@ export default function LeaveClient({ initialTypes, initialRequests, employees, 
   const balanceFor = (empRecordId: string, typeId: string) => {
     const type = types.find(t => t.id === typeId);
     if (!type) return null;
+    const emp = employees.find(e => e.id === empRecordId);
+    const entitlement = entitlementFor(emp, typeId);
     const year = new Date().getFullYear();
     const used = requests
       .filter(r => r.employee_record_id === empRecordId && r.leave_type_id === typeId && r.status === 'approved' && new Date(r.start_date).getFullYear() === year)
       .reduce((s, r) => s + Number(r.days_count || 0), 0);
-    return { entitlement: Number(type.days_per_year), used, remaining: Number(type.days_per_year) - used };
+    return { entitlement, used, remaining: entitlement - used };
   };
 
   const submitRequest = async () => {
@@ -109,7 +116,64 @@ export default function LeaveClient({ initialTypes, initialRequests, employees, 
     setTypes(p => p.filter(t => t.id !== id));
   };
 
+  const startEditType = (t: any) => {
+    setEditingType(t.id); setEtName(t.name); setEtDays(String(t.days_per_year)); setEtColor(t.color);
+  };
+  const saveEditType = async () => {
+    if (!editingType) return;
+    const { data } = await supabase.from('leave_types').update({
+      name: etName.trim(), days_per_year: Number(etDays) || 0, color: etColor,
+    }).eq('id', editingType).select().single();
+    if (data) setTypes(p => p.map(t => t.id === editingType ? data : t));
+    setEditingType(null);
+  };
+
+  // Policy: find the entitlement for a specific employee + leave type
+  const entitlementFor = (emp: any, typeId: string): number => {
+    const typePolicies = policies.filter(p => p.leave_type_id === typeId);
+    // Find the first policy whose criteria the employee matches
+    for (const pol of typePolicies) {
+      const vals = (pol.criteria_values || []).map((v: string) => String(v).toLowerCase());
+      if (vals.length === 0) return Number(pol.days_per_year); // applies to all
+      const empVal = String(emp?.data?.[pol.criteria_field] ?? '').toLowerCase();
+      if (vals.includes(empVal)) return Number(pol.days_per_year);
+    }
+    // Fall back to the leave type's base entitlement
+    const type = types.find(t => t.id === typeId);
+    return type ? Number(type.days_per_year) : 0;
+  };
+
   const fmt = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  // Policy management
+  const [polOpen, setPolOpen] = useState(false);
+  const [npType, setNpType] = useState('');
+  const [npName, setNpName] = useState('');
+  const [npDays, setNpDays] = useState('');
+  const [npField, setNpField] = useState('');
+  const [npValues, setNpValues] = useState<string[]>([]);
+
+  const npFieldOptions = (() => {
+    const f = empFields.find(x => x.field_key === npField);
+    if (f?.options?.length) return f.options;
+    // derive distinct values from employee data
+    return Array.from(new Set(employees.map(e => e.data?.[npField]).filter(Boolean))).slice(0, 30);
+  })();
+
+  const addPolicy = async () => {
+    if (!npType || !npName.trim()) return;
+    const { data } = await supabase.from('leave_policies').insert({
+      company_id: companyId, leave_type_id: npType, name: npName.trim(),
+      days_per_year: Number(npDays) || 0, criteria_field: npField || null,
+      criteria_values: npValues, sort_order: policies.length,
+    }).select().single();
+    if (data) setPolicies(p => [...p, data]);
+    setNpType(''); setNpName(''); setNpDays(''); setNpField(''); setNpValues([]);
+  };
+  const deletePolicy = async (id: string) => {
+    await supabase.from('leave_policies').delete().eq('id', id);
+    setPolicies(p => p.filter(x => x.id !== id));
+  };
 
   return (
     <div>
@@ -119,7 +183,8 @@ export default function LeaveClient({ initialTypes, initialRequests, employees, 
           <p className="text-sm text-slate-500 mt-0.5">{requests.length} requests · {pendingCount} awaiting approval</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setTypesOpen(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Settings size={14} />Leave Types</button>
+          <button onClick={() => setPolOpen(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Settings size={14} />Policies</button>
+          <button onClick={() => setTypesOpen(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Palmtree size={14} />Leave Types</button>
           <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />Request Leave</button>
         </div>
       </div>
@@ -266,16 +331,35 @@ export default function LeaveClient({ initialTypes, initialRequests, employees, 
             </div>
             <div className="p-4 space-y-2">
               {types.map(t => (
-                <div key={t.id} className="flex items-center justify-between border border-slate-200 rounded-xl px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-6 h-6 rounded-lg ${CBG[t.color] || CBG.indigo} flex items-center justify-center`}><Palmtree size={12} /></span>
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{t.name}</p>
-                      <p className="text-xs text-slate-400">{t.days_per_year} days/year</p>
+                editingType === t.id ? (
+                  <div key={t.id} className="border border-indigo-200 rounded-xl p-3 space-y-2 bg-indigo-50/30">
+                    <input value={etName} onChange={e => setEtName(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <div className="flex gap-2">
+                      <input type="number" value={etDays} onChange={e => setEtDays(e.target.value)} placeholder="Days/yr" className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      <select value={etColor} onChange={e => setEtColor(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white">
+                        {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={saveEditType} className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg">Save</button>
+                      <button onClick={() => setEditingType(null)} className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs rounded-lg">Cancel</button>
                     </div>
                   </div>
-                  <button onClick={() => deleteType(t.id)} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
-                </div>
+                ) : (
+                  <div key={t.id} className="flex items-center justify-between border border-slate-200 rounded-xl px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-6 h-6 rounded-lg ${CBG[t.color] || CBG.indigo} flex items-center justify-center`}><Palmtree size={12} /></span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{t.name}</p>
+                        <p className="text-xs text-slate-400">{t.days_per_year} days/year base</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => startEditType(t)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
+                      <button onClick={() => deleteType(t.id)} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                )
               ))}
               <div className="border-2 border-dashed border-slate-200 rounded-xl p-3 mt-3 space-y-2">
                 <p className="text-xs font-medium text-slate-500">Add leave type</p>
@@ -287,6 +371,76 @@ export default function LeaveClient({ initialTypes, initialRequests, employees, 
                   </select>
                 </div>
                 <button onClick={addType} disabled={!ntName.trim()} className="w-full px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg disabled:opacity-40">Add Type</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leave Policies panel */}
+      {polOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" onClick={() => setPolOpen(false)} />
+          <div className="relative bg-white w-[420px] h-full shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Leave Policies</h2>
+                <p className="text-xs text-slate-400">Different entitlements for different employee groups</p>
+              </div>
+              <button onClick={() => setPolOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-4 space-y-2">
+              {policies.map(pol => {
+                const type = types.find(t => t.id === pol.leave_type_id);
+                const field = empFields.find(f => f.field_key === pol.criteria_field);
+                return (
+                  <div key={pol.id} className="border border-slate-200 rounded-xl p-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{pol.name}</p>
+                        <p className="text-xs text-slate-500">{type?.name} · <span className="font-semibold">{pol.days_per_year} days/yr</span></p>
+                        {pol.criteria_values?.length > 0
+                          ? <p className="text-xs text-slate-400 mt-0.5">When {field?.field_label || pol.criteria_field} is: {pol.criteria_values.join(', ')}</p>
+                          : <p className="text-xs text-slate-400 mt-0.5">Applies to all employees</p>}
+                      </div>
+                      <button onClick={() => deletePolicy(pol.id)} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                );
+              })}
+              {policies.length === 0 && <p className="text-xs text-slate-400 bg-slate-50 rounded-xl p-3">No policies yet. Add one below to give different employee groups different entitlements. Without policies, everyone gets the leave type's base days.</p>}
+
+              {/* Add policy */}
+              <div className="border-2 border-dashed border-slate-200 rounded-xl p-3 mt-3 space-y-2">
+                <p className="text-xs font-medium text-slate-500">Add policy</p>
+                <select value={npType} onChange={e => setNpType(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">Which leave type?</option>
+                  {types.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <input value={npName} onChange={e => setNpName(e.target.value)} placeholder="Policy name (e.g. Staff Annual)" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="number" value={npDays} onChange={e => setNpDays(e.target.value)} placeholder="Days per year" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <div className="pt-1">
+                  <p className="text-xs text-slate-400 mb-1">Applies to (leave empty = all employees):</p>
+                  <select value={npField} onChange={e => { setNpField(e.target.value); setNpValues([]); }} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">All employees</option>
+                    {empFields.map(f => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
+                  </select>
+                  {npField && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {npFieldOptions.map((o: string) => {
+                        const on = npValues.map(v => String(v).toLowerCase()).includes(String(o).toLowerCase());
+                        return (
+                          <button key={o} onClick={() => setNpValues(prev => on ? prev.filter(v => String(v).toLowerCase() !== String(o).toLowerCase()) : [...prev, o])}
+                            className={`px-2 py-1 rounded-lg border text-xs ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>
+                            {on ? '✓ ' : ''}{o}
+                          </button>
+                        );
+                      })}
+                      {npFieldOptions.length === 0 && <span className="text-xs text-slate-400">No values found in this field.</span>}
+                    </div>
+                  )}
+                </div>
+                <button onClick={addPolicy} disabled={!npType || !npName.trim()} className="w-full px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg disabled:opacity-40">Add Policy</button>
               </div>
             </div>
           </div>

@@ -8,10 +8,11 @@ export default async function LeavePage() {
   const { profile, sections, user } = await getShellData();
   const companyId = profile?.company_id || '';
 
-  const [{ data: types }, { data: requests }, { data: empFields }] = await Promise.all([
+  const [{ data: types }, { data: requests }, { data: empFields }, { data: policies }] = await Promise.all([
     supabase.from('leave_types').select('*').eq('company_id', companyId).order('sort_order'),
     supabase.from('leave_requests').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
     supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'employee').order('display_order'),
+    supabase.from('leave_policies').select('*').eq('company_id', companyId).order('sort_order'),
   ]);
 
   // Load employees (batched) for the picker — id + name field only
@@ -29,6 +30,7 @@ export default async function LeavePage() {
       <LeaveClient
         initialTypes={types || []}
         initialRequests={requests || []}
+        initialPolicies={policies || []}
         employees={employees}
         empFields={empFields || []}
         companyId={companyId}
