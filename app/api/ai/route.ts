@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     const data = await res.json();
 
     if (data.error) {
-      return NextResponse.json({ error: data.error.message || 'Gemini API error' }, { status: 500 });
+      return NextResponse.json({ error: 'The AI is briefly unavailable — your data is safe. Please try once more in a moment.' }, { status: 500 });
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';

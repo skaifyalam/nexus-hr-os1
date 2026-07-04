@@ -24,6 +24,24 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
   initialWidgets: any[]; sections: any[]; allFields: any[]; companyId: string;
 }) {
   const [widgets, setWidgets] = useState(initialWidgets);
+  const [dragW, setDragW] = useState<string | null>(null);
+  const [dragOverW, setDragOverW] = useState<string | null>(null);
+
+  const reorder = async (targetId: string) => {
+    setDragOverW(null);
+    if (!dragW || dragW === targetId) { setDragW(null); return; }
+    const list = [...widgets];
+    const fromIdx = list.findIndex(w => w.id === dragW);
+    const toIdx = list.findIndex(w => w.id === targetId);
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    setWidgets(list);
+    setDragW(null);
+    // Persist new order
+    await Promise.all(list.map((w, i) =>
+      supabase.from('dashboard_widgets').update({ display_order: i }).eq('id', w.id)
+    ));
+  };
   const [data, setData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -141,7 +159,13 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
             const c = COLOR_MAP[w.color] || COLOR_MAP.indigo;
             const isWide = w.display === 'bar' || w.display === 'pie' || w.metric === 'breakdown';
             return (
-              <div key={w.id} className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-5 group relative ${isWide ? 'col-span-3 md:col-span-1' : ''} ${(w.display === 'bar' || w.display === 'pie') ? 'col-span-3 md:col-span-2' : ''}`}>
+              <div key={w.id}
+                draggable
+                onDragStart={() => setDragW(w.id)}
+                onDragOver={e => { e.preventDefault(); setDragOverW(w.id); }}
+                onDragLeave={() => setDragOverW(d2 => d2 === w.id ? null : d2)}
+                onDrop={() => reorder(w.id)}
+                className={`bg-white rounded-2xl border shadow-sm p-5 group relative cursor-grab active:cursor-grabbing transition-all ${dragOverW === w.id ? 'ring-2 ring-indigo-400 border-indigo-300' : 'border-slate-100'} ${dragW === w.id ? 'opacity-40' : ''} ${isWide ? 'col-span-3 md:col-span-1' : ''} ${(w.display === 'bar' || w.display === 'pie') ? 'col-span-3 md:col-span-2' : ''}`}>
                 <button onClick={() => removeWidget(w.id)} className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><X size={14} /></button>
 
                 {/* COUNT / SUM card */}

@@ -1,16 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createRouteClient } from '@/lib/supabase/server';
+import { callGemini } from '@/lib/gemini';
 
 const gemini = async (prompt: string) => {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: `You are NEXUS HR AI Report Generator for a GCC enterprise company.
+  const { text, error } = await callGemini({
+    systemInstruction: {
+      parts: [{ text: `You are NEXUS HR AI Report Generator for a GCC enterprise company.
 Generate professional HR reports using ONLY the data provided.
 Use markdown formatting: # for main title, ## for sections, ### for subsections.
 Use tables with | separators for tabular data.
@@ -18,15 +13,12 @@ Use **bold** for key numbers and important findings.
 Always end with ## Recommendations with actionable bullet points.
 Be precise, professional, and GCC/Saudi Arabia context aware.
 Never invent data that wasn't provided.` }]
-        },
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 2000, temperature: 0.2 },
-      }),
-    }
-  );
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    },
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 2000, temperature: 0.2 },
+  });
+  if (error) throw new Error(error);
+  return text;
 };
 
 export async function POST(req: Request) {

@@ -1,13 +1,14 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
-  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp,
+  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import Assistant from './Assistant';
 
 const ICON_MAP: Record<string, any> = {
   dashboard: LayoutDashboard, employees: Users, requisitions: Briefcase,
@@ -40,6 +41,38 @@ export default function Shell({
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+
+  // Multi-company switcher
+  const [memberships, setMemberships] = useState<any[]>([]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [newCoOpen, setNewCoOpen] = useState(false);
+  const [newCoName, setNewCoName] = useState('');
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('company_memberships')
+        .select('company_id, role, company_profile(company_name)');
+      if (data) setMemberships(data);
+    })();
+  }, []);
+
+  const switchCompany = async (targetId: string) => {
+    if (targetId === companyId) { setSwitcherOpen(false); return; }
+    setSwitching(true);
+    const { data: ok } = await supabase.rpc('switch_company', { target_company_id: targetId });
+    if (ok) window.location.href = '/dashboard';
+    else setSwitching(false);
+  };
+
+  const createCompany = async () => {
+    if (!newCoName.trim()) return;
+    setSwitching(true);
+    const { data } = await supabase.rpc('create_additional_company', { p_name: newCoName.trim() });
+    if (data) window.location.href = '/onboarding';
+    else setSwitching(false);
+  };
 
   const signOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
 
@@ -109,6 +142,9 @@ export default function Shell({
           <Link href="/analytics" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/analytics') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
             <TrendingUp size={14} />Delay Analysis
           </Link>
+          <Link href="/structure" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/structure') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <GitBranch size={14} />Org Structure
+          </Link>
 
           {/* Add Section */}
           {!addOpen ? (
@@ -144,6 +180,34 @@ export default function Shell({
         </nav>
 
         <div className="px-4 py-4 border-t border-slate-100">
+          {/* Company switcher */}
+          {memberships.length > 0 && (
+            <div className="relative mb-3">
+              <button onClick={() => setSwitcherOpen(!switcherOpen)} className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-slate-100">
+                <span className="flex items-center gap-2 min-w-0">
+                  <Building2 size={13} className="text-indigo-500 flex-shrink-0" />
+                  <span className="truncate">{(memberships.find(m => m.company_id === companyId) as any)?.company_profile?.company_name || 'Company'}</span>
+                </span>
+                <ChevronsUpDown size={12} className="text-slate-400 flex-shrink-0" />
+              </button>
+              {switcherOpen && (
+                <div className="absolute bottom-full mb-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden z-50">
+                  {memberships.map((m: any) => (
+                    <button key={m.company_id} onClick={() => switchCompany(m.company_id)} disabled={switching}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-slate-50 ${m.company_id === companyId ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-600'}`}>
+                      <Building2 size={12} className="flex-shrink-0" />
+                      <span className="truncate">{m.company_profile?.company_name || 'Unnamed'}</span>
+                      {m.company_id === companyId && <Check size={12} className="ml-auto flex-shrink-0" />}
+                    </button>
+                  ))}
+                  <button onClick={() => { setSwitcherOpen(false); setNewCoOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 font-medium">
+                    <Plus size={12} />New Company
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2.5 mb-3">
             <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center"><User size={13} className="text-indigo-600" /></div>
             <div className="min-w-0">
@@ -159,6 +223,26 @@ export default function Shell({
       <main className="flex-1 overflow-y-auto">
         <div className="p-7 max-w-6xl">{children}</div>
       </main>
+      <Assistant />
+
+      {/* New Company modal */}
+      {newCoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setNewCoOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-semibold text-slate-900 mb-1">New Company</h2>
+            <p className="text-xs text-slate-500 mb-4">Creates a separate workspace with its own data, sections, and settings. Switch between companies anytime from the sidebar.</p>
+            <input value={newCoName} onChange={e => setNewCoName(e.target.value)} placeholder="Company name" autoFocus
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setNewCoOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={createCompany} disabled={switching || !newCoName.trim()} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
+                {switching ? 'Creating…' : 'Create & Switch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
