@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, X, Trash2, BarChart3, PieChart, Hash, List, TrendingUp,
-  Loader, Settings2, LayoutDashboard,
+  Loader, Settings2, LayoutDashboard, Bell, Briefcase, ArrowRight,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -20,8 +20,8 @@ const COLOR_MAP: Record<string, { bg: string; text: string; bar: string }> = {
 
 const PIE_COLORS = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#0ea5e9', '#14b8a6', '#f97316', '#a855f7', '#84cc16', '#ec4899', '#06b6d4'];
 
-export default function DashboardClient({ initialWidgets, sections, allFields, companyId }: {
-  initialWidgets: any[]; sections: any[]; allFields: any[]; companyId: string;
+export default function DashboardClient({ initialWidgets, sections, allFields, actions, companyId }: {
+  initialWidgets: any[]; sections: any[]; allFields: any[]; actions?: any; companyId: string;
 }) {
   const [widgets, setWidgets] = useState(initialWidgets);
   const [dragW, setDragW] = useState<string | null>(null);
@@ -156,6 +156,56 @@ export default function DashboardClient({ initialWidgets, sections, allFields, c
           <Plus size={14} />Add Widget
         </button>
       </div>
+
+      {/* Action Center — pending approvals & things needing attention */}
+      {actions && (actions.pendingLeave?.length > 0 || actions.openReqCount > 0) && (
+        <div className="grid md:grid-cols-2 gap-4 mb-6">
+          {/* Pending leave approvals */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><Bell size={15} /></div>
+                <h3 className="text-sm font-semibold text-slate-800">Pending Approvals</h3>
+              </div>
+              {actions.pendingLeave.length > 0 && <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{actions.pendingLeave.length}</span>}
+            </div>
+            {actions.pendingLeave.length === 0 ? (
+              <p className="text-xs text-slate-400 py-2">Nothing awaiting approval. All caught up.</p>
+            ) : (
+              <div className="space-y-2">
+                {actions.pendingLeave.slice(0, 4).map((l: any) => (
+                  <div key={l.id} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-700 truncate">{l.employee_name} · <span className="text-slate-400">{l.leave_type_name}</span></span>
+                    <span className="text-slate-400 flex-shrink-0 ml-2">{l.days_count}d</span>
+                  </div>
+                ))}
+                <a href="/leave" className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:gap-2 transition-all mt-1">Review in Leave <ArrowRight size={12} /></a>
+              </div>
+            )}
+          </div>
+
+          {/* Open requisitions / positions to hire */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><Briefcase size={15} /></div>
+                <h3 className="text-sm font-semibold text-slate-800">Hiring Pipeline</h3>
+              </div>
+            </div>
+            {actions.openReqCount === 0 ? (
+              <p className="text-xs text-slate-400 py-2">No open requisitions right now.</p>
+            ) : (
+              <div>
+                <div className="flex gap-6 mb-2">
+                  <div><p className="text-2xl font-bold text-slate-900">{actions.openReqCount}</p><p className="text-xs text-slate-400">Open requisitions</p></div>
+                  <div><p className="text-2xl font-bold text-slate-900">{actions.openReqPositions}</p><p className="text-xs text-slate-400">Positions to fill</p></div>
+                </div>
+                <a href="/requisitions" className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:gap-2 transition-all">Manage requisitions <ArrowRight size={12} /></a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {widgets.length === 0 ? (
         <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-16 text-center">

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
-  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award,
+  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award, FileText,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Assistant from './Assistant';
@@ -289,6 +289,9 @@ export default function Shell({
           </Link>
           <Link href="/performance" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/performance') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
             <Award size={14} />Performance
+          </Link>
+          <Link href="/documents" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/documents') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <FileText size={14} />Documents
           </Link>
 
           {/* Add Section */}
