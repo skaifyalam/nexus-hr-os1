@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -81,6 +81,30 @@ export default function Shell({
   const [dragSec, setDragSec] = useState<string | null>(null);
   const [dragOverSec, setDragOverSec] = useState<string | null>(null);
   const [renamingSec, setRenamingSec] = useState<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 224px
+
+  // Load saved width once on mount
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('nexus_sidebar_width') : null;
+    if (saved) { const n = parseInt(saved); if (n >= 180 && n <= 420) setSidebarWidth(n); }
+  }, []);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.min(420, Math.max(180, startW + (ev.clientX - startX)));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setSidebarWidth(w => { try { window.localStorage.setItem('nexus_sidebar_width', String(w)); } catch {} return w; });
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   const renameSection = async (s: any, newLabel: string) => {
     const label = newLabel.trim();
@@ -150,7 +174,15 @@ export default function Shell({
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
-      <div className="w-56 flex-shrink-0 bg-white border-r border-slate-100 flex flex-col h-screen sticky top-0">
+      <div style={{ width: sidebarWidth }} className="flex-shrink-0 bg-white border-r border-slate-100 flex flex-col h-screen sticky top-0 relative">
+        {/* Resize handle */}
+        <div
+          onMouseDown={startResize}
+          title="Drag to resize"
+          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-indigo-200 active:bg-indigo-400 transition-colors z-20 group/resize"
+        >
+          <div className="absolute top-1/2 -translate-y-1/2 right-0 w-1 h-8 bg-slate-200 rounded-full opacity-0 group-hover/resize:opacity-100 transition-opacity" />
+        </div>
         <div className="px-4 py-5 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center">
@@ -208,7 +240,7 @@ export default function Shell({
                   ) : (
                     <Link
                       href={href}
-                      onDoubleClick={e => { if (!s.is_core) { e.preventDefault(); setRenamingSec(s.id); } }}
+                      onDoubleClick={e => { e.preventDefault(); setRenamingSec(s.id); }}
                       className={`flex items-center gap-2.5 flex-1 min-w-0 pr-2 py-2 text-xs font-medium ${isActive(href) ? 'text-white' : 'text-slate-600'}`}
                     >
                       <Icon size={14} className="flex-shrink-0" />
@@ -216,14 +248,16 @@ export default function Shell({
                     </Link>
                   )}
 
-                  {!s.is_core && !isEditing && (
+                  {!isEditing && (
                     <div className="flex items-center pr-1.5 opacity-0 group-hover/sec:opacity-100 transition-opacity">
                       <button onClick={(e) => { e.preventDefault(); setRenamingSec(s.id); }} title="Rename" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-slate-200 text-slate-400 hover:text-slate-600'}`}>
                         <Edit2 size={11} />
                       </button>
-                      <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSection(s); }} title="Delete (if empty)" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-red-50 text-slate-400 hover:text-red-500'}`}>
-                        <X size={11} />
-                      </button>
+                      {!s.is_core && (
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSection(s); }} title="Delete (if empty)" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-red-50 text-slate-400 hover:text-red-500'}`}>
+                          <X size={11} />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
