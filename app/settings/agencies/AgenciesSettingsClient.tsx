@@ -32,10 +32,22 @@ export default function AgenciesSettingsClient({ initialAgencies, candCounts }: 
   };
 
   const del = async (id: string) => {
-    if (countFor(id) > 0) { setError('Cannot delete — candidates are assigned to this agency.'); return; }
+    const linked = countFor(id);
+    if (linked > 0) {
+      const ok = confirm(
+        `This agency has ${linked} candidate record(s) linked in the legacy candidates table — ` +
+        `these may be old/hidden records not visible in your Recruitment Pipeline. ` +
+        `\n\nDelete the agency and unlink those records? (The candidate rows are not deleted, just unlinked.)`
+      );
+      if (!ok) return;
+      // Unlink legacy candidates from this agency, then delete the agency
+      const { error: unlinkErr } = await supabase.from('candidates').update({ agency_id: null }).eq('agency_id', id);
+      if (unlinkErr) { setError(unlinkErr.message); return; }
+    }
     const { error } = await supabase.from('agencies').delete().eq('id', id);
     if (error) { setError(error.message); return; }
     setAgencies((p) => p.filter((a) => a.id !== id));
+    setError('');
   };
 
   const fields: [string, string, string][] = [
