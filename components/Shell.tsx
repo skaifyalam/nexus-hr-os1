@@ -133,6 +133,22 @@ export default function Shell({
 
   const isSuperAdmin = profile?.role === 'super_admin';
 
+  // Load this user's role permissions (non-super users) to gate feature visibility
+  const [rolePerms, setRolePerms] = useState<any>(null);
+  useEffect(() => {
+    if (isSuperAdmin || !(profile as any)?.custom_role_id) return;
+    (async () => {
+      const { data } = await supabase.from('custom_roles').select('permissions').eq('id', (profile as any).custom_role_id).maybeSingle();
+      if (data) setRolePerms(data.permissions || {});
+    })();
+  }, []);
+
+  const featureVisible = (key: string) => {
+    if (isSuperAdmin || !rolePerms?.features) return true;
+    const access = rolePerms.features[key];
+    return access === undefined || access !== 'none';
+  };
+
   const saveUserOrder = async (list: any[]) => {
     if (!companyId) return;
     const keys = list.map(f => f.key);
@@ -352,7 +368,7 @@ export default function Shell({
           })}
 
           {/* Movable + renamable feature links */}
-          {features.map(f => {
+          {features.filter(f => featureVisible(f.key)).map(f => {
             const Icon = FEATURE_ICONS[f.key] || Folder;
             const isEditing = renamingFeature === f.key;
             return (
@@ -407,12 +423,16 @@ export default function Shell({
           })}
 
           {/* Fixed: Company Brain + AI Reports — pinned to bottom, never movable/renamable */}
-          <Link href="/brain" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/brain') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <Brain size={14} />Company Brain
-          </Link>
-          <Link href="/reports" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/reports') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <BarChart3 size={14} />AI Reports
-          </Link>
+          {featureVisible('brain') && (
+            <Link href="/brain" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/brain') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+              <Brain size={14} />Company Brain
+            </Link>
+          )}
+          {featureVisible('reports') && (
+            <Link href="/reports" className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-xs font-medium ${isActive('/reports') ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+              <BarChart3 size={14} />AI Reports
+            </Link>
+          )}
 
           {/* Add Section */}
           {!addOpen ? (

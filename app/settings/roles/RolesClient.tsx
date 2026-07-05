@@ -3,13 +3,54 @@ import { useState } from 'react';
 import { Plus, X, Shield, Mail, Loader, Check, Users, Key, Trash2, Edit2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function RolesClient({ initialRoles, initialProfiles, companyId, currentUserId }: {
-  initialRoles: any[]; initialProfiles: any[]; companyId: string; currentUserId: string;
+export default function RolesClient({ initialRoles, initialProfiles, companyId, currentUserId, sections = [], empFields = [] }: {
+  initialRoles: any[]; initialProfiles: any[]; companyId: string; currentUserId: string; sections?: any[]; empFields?: any[];
 }) {
   const [roles, setRoles] = useState(initialRoles);
   const [profiles, setProfiles] = useState(initialProfiles);
   const [tab, setTab] = useState<'users' | 'roles'>('users');
   const supabase = createClient();
+
+  // Catalog of things a role's access can be set on
+  const FEATURES = [
+    { key: 'compliance', label: 'Compliance' },
+    { key: 'analytics', label: 'Delay Analysis' },
+    { key: 'structure', label: 'Org Structure' },
+    { key: 'leave', label: 'Leave' },
+    { key: 'attendance', label: 'Attendance' },
+    { key: 'performance', label: 'Performance' },
+    { key: 'documents', label: 'Documents' },
+    { key: 'brain', label: 'Company Brain' },
+    { key: 'reports', label: 'AI Reports' },
+  ];
+  const ACCESS = [
+    { v: 'none', label: 'Hidden' },
+    { v: 'view', label: 'View only' },
+    { v: 'apply', label: 'View & apply' },
+    { v: 'approve', label: 'View, apply & approve' },
+  ];
+
+  // ─── Permission editor ───
+  const [permRole, setPermRole] = useState<any>(null);
+  const [permFeatures, setPermFeatures] = useState<Record<string, string>>({});
+  const [permSections, setPermSections] = useState<Record<string, string>>({});
+  const [permConfidential, setPermConfidential] = useState<string[]>([]);
+  const [savingPerm, setSavingPerm] = useState(false);
+
+  const openPerms = (r: any) => {
+    const p = r.permissions || {};
+    setPermFeatures(p.features || {});
+    setPermSections(p.sections || {});
+    setPermConfidential(p.confidential_fields || []);
+    setPermRole(r);
+  };
+  const savePerms = async () => {
+    setSavingPerm(true);
+    const permissions = { features: permFeatures, sections: permSections, confidential_fields: permConfidential };
+    const { data } = await supabase.from('custom_roles').update({ permissions }).eq('id', permRole.id).select().single();
+    if (data) setRoles(p => p.map(r => r.id === permRole.id ? data : r));
+    setSavingPerm(false); setPermRole(null);
+  };
 
   // ─── Roles ───
   const [roleOpen, setRoleOpen] = useState(false);
@@ -168,7 +209,9 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                     <button onClick={() => deleteRole(r.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
                   </div>
                   {r.description && <p className="text-xs text-slate-500 mt-3">{r.description}</p>}
-                  <p className="text-xs text-slate-300 mt-3 italic">Permissions configured in the next build (feature access + confidential fields).</p>
+                  <button onClick={() => openPerms(r)} className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
+                    <Shield size={12} />Configure permissions
+                  </button>
                 </div>
               ))}
             </div>
@@ -256,6 +299,88 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
               <button onClick={() => setResetUser(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={doReset} disabled={resetting} className="px-4 py-2.5 text-sm font-medium bg-slate-800 text-white rounded-xl hover:bg-slate-900 disabled:opacity-40">{resetting ? 'Updating…' : 'Set Password'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Permission editor modal */}
+      {permRole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setPermRole(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Permissions — {permRole.name}</h2>
+                <p className="text-xs text-slate-400">Control what this role can see and do</p>
+              </div>
+              <button onClick={() => setPermRole(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              {/* Feature access */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Feature Access</p>
+                <div className="space-y-2">
+                  {FEATURES.map(f => (
+                    <div key={f.key} className="flex items-center justify-between">
+                      <span className="text-sm text-slate-700">{f.label}</span>
+                      <select
+                        value={permFeatures[f.key] || 'none'}
+                        onChange={e => setPermFeatures(p => ({ ...p, [f.key]: e.target.value }))}
+                        className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        {ACCESS.map(a => <option key={a.v} value={a.v}>{a.label}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section (data) access */}
+              {sections.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Data Sections</p>
+                  <div className="space-y-2">
+                    {sections.map((s: any) => (
+                      <div key={s.section_key} className="flex items-center justify-between">
+                        <span className="text-sm text-slate-700">{s.label}</span>
+                        <select
+                          value={permSections[s.section_key] || 'none'}
+                          onChange={e => setPermSections(p => ({ ...p, [s.section_key]: e.target.value }))}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          {ACCESS.map(a => <option key={a.v} value={a.v}>{a.label}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Confidential fields */}
+              {empFields.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Confidential Fields</p>
+                  <p className="text-xs text-slate-400 mb-2">Tick fields this role is NOT allowed to see (e.g. salary). Unticked = visible.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {empFields.map((f: any) => {
+                      const hidden = permConfidential.includes(f.field_key);
+                      return (
+                        <button
+                          key={f.field_key}
+                          onClick={() => setPermConfidential(p => hidden ? p.filter(k => k !== f.field_key) : [...p, f.field_key])}
+                          className={`px-2.5 py-1 rounded-lg border text-xs ${hidden ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-slate-200 text-slate-600'}`}
+                        >
+                          {hidden ? '🔒 ' : ''}{f.field_label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
+              <button onClick={() => setPermRole(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={savePerms} disabled={savingPerm} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{savingPerm ? 'Saving…' : 'Save Permissions'}</button>
             </div>
           </div>
         </div>
