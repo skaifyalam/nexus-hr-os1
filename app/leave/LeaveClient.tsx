@@ -5,6 +5,7 @@ import {
   XCircle, Palmtree, ChevronDown, Edit2, Layers, Upload, Download, Loader,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import PersonPicker from '@/components/PersonPicker';
 import { createClient } from '@/lib/supabase/client';
 
 const COLORS = ['indigo', 'amber', 'emerald', 'rose', 'sky', 'violet', 'teal', 'slate'];
@@ -413,10 +414,7 @@ export default function LeaveClient({ initialTypes, initialRequests, initialPoli
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">Employee</label>
-                <select value={rEmp} onChange={e => setREmp(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="">Select employee…</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{empName(e)}{empCode(e) ? ` (${empCode(e)})` : ''}</option>)}
-                </select>
+                <PersonPicker people={employees} fields={empFields} value={rEmp} onChange={setREmp} placeholder="Search by name or employee ID…" />
                 {employees.length === 0 && <p className="text-xs text-amber-600">No employees found. Upload your employee list in the Employees section first.</p>}
               </div>
               <div className="space-y-1.5">

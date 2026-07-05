@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react';
 import { Plus, X, Upload, Download, Loader, Check, Clock, Calendar, Users, TrendingUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import PersonPicker from '@/components/PersonPicker';
 import { createClient } from '@/lib/supabase/client';
 
 const STATUSES = [
@@ -195,10 +196,7 @@ export default function AttendanceClient({ initialRecords, employees, empFields,
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">Employee</label>
-                <select value={fEmp} onChange={e => setFEmp(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="">Select…</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{empName(e)}{empCode(e) ? ` (${empCode(e)})` : ''}</option>)}
-                </select>
+                <PersonPicker people={employees} fields={empFields} value={fEmp} onChange={setFEmp} placeholder="Search by name or employee ID…" />
                 {employees.length === 0 && <p className="text-xs text-amber-600">Upload employees first.</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
