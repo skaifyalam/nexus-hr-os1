@@ -30,14 +30,16 @@ export default function PersonPicker({
   const displayName = (p: any) => (nameField && p.data?.[nameField]) || p.record_id || 'Unnamed';
   const displayId = (p: any) => {
     for (const k of idFields) { if (p.data?.[k]) return String(p.data[k]); }
+    // fallback: first non-name value that looks like a code/number
+    for (const f of fields) {
+      const v = p.data?.[f.field_key];
+      if (v && f.field_key !== nameField && /\d/.test(String(v)) && String(v).length <= 20) return String(v);
+    }
     return p.record_id || '';
   };
-  const searchText = (p: any) => {
-    const parts = [displayName(p)];
-    idFields.forEach(k => { if (p.data?.[k]) parts.push(String(p.data[k])); });
-    parts.push(p.record_id || '');
-    return parts.join(' ').toLowerCase();
-  };
+  // Search the WHOLE record (every field) — same approach as the Staff list, which works.
+  const searchText = (p: any) =>
+    (JSON.stringify(p.data || {}) + ' ' + (p.record_id || '')).toLowerCase();
 
   const selected = people.find(p => p.id === value);
 
