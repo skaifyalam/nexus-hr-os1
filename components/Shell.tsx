@@ -40,7 +40,6 @@ const ADMIN_NAV = [
   { href: '/settings/agencies', label: 'Agencies', icon: 'building', superOnly: false },
   { href: '/settings/users', label: 'User Management', icon: 'users', superOnly: true },
   { href: '/settings/id-formats', label: 'ID Formats', icon: 'hash', superOnly: true },
-  { href: '/billing', label: 'Billing & Plans', icon: 'card', superOnly: true },
 ];
 
 export default function Shell({
@@ -477,13 +476,14 @@ export default function Shell({
             </div>
           )}
 
-          <div className="flex items-center gap-2.5 mb-3">
+          <Link href="/account" className="flex items-center gap-2.5 mb-3 p-1.5 -m-1.5 rounded-xl hover:bg-slate-100 transition-colors">
             <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center"><User size={13} className="text-indigo-600" /></div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-slate-700 truncate">{profile?.full_name || profile?.email}</p>
               <p className="text-xs text-slate-400 capitalize">{profile?.role?.replace(/_/g, ' ')}</p>
             </div>
-          </div>
+            <Settings size={13} className="text-slate-300 flex-shrink-0" />
+          </Link>
           <button onClick={signOut} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors">
             <LogOut size={13} />Sign Out
           </button>

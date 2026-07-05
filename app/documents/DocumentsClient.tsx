@@ -224,7 +224,7 @@ export default function DocumentsClient({ initialDocs, employees, empFields, com
                 <label className="text-sm font-medium text-slate-700">Employee</label>
                 <select value={fEmp} onChange={e => setFEmp(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   <option value="">Select…</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{empName(e)}</option>)}
+                  {employees.map(e => <option key={e.id} value={e.id}>{empName(e)}{empCode(e) ? ` (${empCode(e)})` : ""}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
