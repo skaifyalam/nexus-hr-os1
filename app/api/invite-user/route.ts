@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
   try {
-    const { email, role, operation_ids, agency_id } = await req.json();
+    const { email, role, operation_ids, agency_id, custom_role_id } = await req.json();
 
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY not configured in Vercel environment variables.' }, { status: 500 });
@@ -36,6 +36,7 @@ export async function POST(req: Request) {
         role,
         company_id: profile.company_id,
         agency_id: agency_id || null,
+        custom_role_id: custom_role_id || null,
       }).eq('id', inviteData.user.id);
 
       if (operation_ids?.length > 0) {

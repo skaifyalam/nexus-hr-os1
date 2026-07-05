@@ -1,0 +1,265 @@
+'use client';
+import { useState } from 'react';
+import { Plus, X, Shield, Mail, Loader, Check, Users, Key, Trash2, Edit2 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+
+export default function RolesClient({ initialRoles, initialProfiles, companyId, currentUserId }: {
+  initialRoles: any[]; initialProfiles: any[]; companyId: string; currentUserId: string;
+}) {
+  const [roles, setRoles] = useState(initialRoles);
+  const [profiles, setProfiles] = useState(initialProfiles);
+  const [tab, setTab] = useState<'users' | 'roles'>('users');
+  const supabase = createClient();
+
+  // ─── Roles ───
+  const [roleOpen, setRoleOpen] = useState(false);
+  const [rName, setRName] = useState('');
+  const [rDesc, setRDesc] = useState('');
+  const [savingRole, setSavingRole] = useState(false);
+
+  const addRole = async () => {
+    if (!rName.trim()) return;
+    setSavingRole(true);
+    const { data, error } = await supabase.from('custom_roles').insert({
+      company_id: companyId, name: rName.trim(), description: rDesc.trim(), permissions: {},
+    }).select().single();
+    setSavingRole(false);
+    if (data) { setRoles(p => [...p, data]); setRName(''); setRDesc(''); setRoleOpen(false); }
+    if (error) alert(error.message);
+  };
+
+  const deleteRole = async (id: string) => {
+    if (!confirm('Delete this role? Users with it will keep access until reassigned.')) return;
+    await supabase.from('custom_roles').delete().eq('id', id);
+    setRoles(p => p.filter(r => r.id !== id));
+  };
+
+  // ─── Invite user ───
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [iEmail, setIEmail] = useState('');
+  const [iRoleId, setIRoleId] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState('');
+
+  const inviteUser = async () => {
+    if (!iEmail.trim()) return;
+    setInviting(true); setInviteMsg('');
+    try {
+      const res = await fetch('/api/invite-user', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: iEmail.trim(), role: 'employee', custom_role_id: iRoleId || null }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setInviteMsg(json.error || 'Invite failed.'); setInviting(false); return; }
+      setInviteMsg(`✓ Invitation sent to ${iEmail}. They'll get an email to set their password.`);
+      setIEmail(''); setIRoleId('');
+      setTimeout(() => { setInviteOpen(false); setInviteMsg(''); }, 2500);
+    } catch (e: any) { setInviteMsg(e.message); }
+    setInviting(false);
+  };
+
+  // ─── Reset password ───
+  const [resetUser, setResetUser] = useState<any>(null);
+  const [newPw, setNewPw] = useState('');
+  const [resetMsg, setResetMsg] = useState('');
+  const [resetting, setResetting] = useState(false);
+
+  const doReset = async () => {
+    if (newPw.length < 6) { setResetMsg('Password must be at least 6 characters.'); return; }
+    setResetting(true); setResetMsg('');
+    try {
+      const res = await fetch('/api/reset-user-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: resetUser.id, new_password: newPw }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setResetMsg(json.error || 'Reset failed.'); setResetting(false); return; }
+      setResetMsg('✓ Password updated.');
+      setTimeout(() => { setResetUser(null); setNewPw(''); setResetMsg(''); }, 1800);
+    } catch (e: any) { setResetMsg(e.message); }
+    setResetting(false);
+  };
+
+  // ─── Assign role to existing user ───
+  const assignRole = async (userId: string, roleId: string) => {
+    await supabase.from('profiles').update({ custom_role_id: roleId || null }).eq('id', userId);
+    setProfiles(p => p.map(u => u.id === userId ? { ...u, custom_role_id: roleId || null } : u));
+  };
+
+  const roleName = (id: string) => roles.find(r => r.id === id)?.name || '—';
+
+  return (
+    <div className="max-w-4xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900">Roles & Users</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Create custom roles and invite your team by email</p>
+      </div>
+
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setTab('users')} className={`px-4 py-2 rounded-xl text-sm font-medium ${tab === 'users' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Users</button>
+        <button onClick={() => setTab('roles')} className={`px-4 py-2 rounded-xl text-sm font-medium ${tab === 'roles' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Roles</button>
+      </div>
+
+      {tab === 'users' && (
+        <div>
+          <div className="flex justify-end mb-4">
+            <button onClick={() => setInviteOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Mail size={14} />Invite User</button>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <table className="w-full">
+              <thead><tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left text-xs font-medium text-slate-500 px-4 py-3">User</th>
+                <th className="text-left text-xs font-medium text-slate-500 px-4 py-3">Role</th>
+                <th className="text-right text-xs font-medium text-slate-500 px-4 py-3">Actions</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50">
+                {profiles.map(u => (
+                  <tr key={u.id} className="hover:bg-slate-50/50">
+                    <td className="px-4 py-3">
+                      <p className="text-sm text-slate-700">{u.full_name || u.email}</p>
+                      <p className="text-xs text-slate-400">{u.email}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.role === 'super_admin' ? (
+                        <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium">Super Admin</span>
+                      ) : (
+                        <select value={u.custom_role_id || ''} onChange={e => assignRole(u.id, e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                          <option value="">No role</option>
+                          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {u.role !== 'super_admin' && (
+                        <button onClick={() => { setResetUser(u); setNewPw(''); setResetMsg(''); }} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Key size={12} />Reset password</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'roles' && (
+        <div>
+          <div className="flex justify-end mb-4">
+            <button onClick={() => setRoleOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />New Role</button>
+          </div>
+          {roles.length === 0 ? (
+            <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-14 text-center">
+              <Shield size={36} className="text-slate-200 mx-auto mb-4" />
+              <p className="text-sm font-medium text-slate-600 mb-1">No custom roles yet</p>
+              <p className="text-xs text-slate-400">Create roles like "Project Manager" or "Site Admin" — you'll set their permissions next.</p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-3">
+              {roles.map(r => (
+                <div key={r.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 group">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><Shield size={16} /></div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{r.name}</p>
+                        <p className="text-xs text-slate-400">{profiles.filter(u => u.custom_role_id === r.id).length} user(s)</p>
+                      </div>
+                    </div>
+                    <button onClick={() => deleteRole(r.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
+                  </div>
+                  {r.description && <p className="text-xs text-slate-500 mt-3">{r.description}</p>}
+                  <p className="text-xs text-slate-300 mt-3 italic">Permissions configured in the next build (feature access + confidential fields).</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* New role modal */}
+      {roleOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setRoleOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-900">New Role</h2>
+              <button onClick={() => setRoleOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Role name</label>
+                <input value={rName} onChange={e => setRName(e.target.value)} placeholder="e.g. Project Manager" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Description (optional)</label>
+                <input value={rDesc} onChange={e => setRDesc(e.target.value)} placeholder="What this role is for" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setRoleOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={addRole} disabled={!rName.trim() || savingRole} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{savingRole ? 'Creating…' : 'Create Role'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invite modal */}
+      {inviteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setInviteOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-900">Invite User</h2>
+              <button onClick={() => setInviteOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Email address</label>
+                <input value={iEmail} onChange={e => setIEmail(e.target.value)} type="email" placeholder="person@company.com" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Role</label>
+                <select value={iRoleId} onChange={e => setIRoleId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">No role (assign later)</option>
+                  {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <p className="text-xs text-slate-400">They'll receive an email invitation to set their own password and join.</p>
+              {inviteMsg && <p className={`text-xs ${inviteMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{inviteMsg}</p>}
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setInviteOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={inviteUser} disabled={!iEmail.trim() || inviting} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{inviting ? 'Sending…' : 'Send Invite'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset password modal */}
+      {resetUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setResetUser(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-900">Reset Password</h2>
+              <button onClick={() => setResetUser(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Set a new password for <span className="font-medium">{resetUser.full_name || resetUser.email}</span>.</p>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">New password</label>
+                <input value={newPw} onChange={e => setNewPw(e.target.value)} type="text" placeholder="At least 6 characters" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <p className="text-xs text-slate-400">Share this with the user securely. They can change it later in their profile.</p>
+              </div>
+              {resetMsg && <p className={`text-xs ${resetMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{resetMsg}</p>}
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setResetUser(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={doReset} disabled={resetting} className="px-4 py-2.5 text-sm font-medium bg-slate-800 text-white rounded-xl hover:bg-slate-900 disabled:opacity-40">{resetting ? 'Updating…' : 'Set Password'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
