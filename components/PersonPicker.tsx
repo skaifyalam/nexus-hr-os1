@@ -27,15 +27,21 @@ export default function PersonPicker({
     ).map(f => f.field_key),
   [fields]);
 
-  const displayName = (p: any) => (nameField && p.data?.[nameField]) || p.record_id || 'Unnamed';
+  const displayName = (p: any) => (nameField && p.data?.[nameField]) || 'Unnamed';
+
+  // Fields that are ID-like by label, EXCLUDING descriptive fields (nationality, project, etc.)
+  const idLabelFields = useMemo(() =>
+    fields.filter(f =>
+      /(employee.*code|emp.*code|employee.*id|staff.*id|passport|iqama|recruitment.*id|national.*id|\bcode\b|\bid\b)/i.test(f.field_label)
+      && !/(nationality|country|project|category|department|designation|agency|status)/i.test(f.field_label)
+    ).map(f => f.field_key),
+  [fields]);
+
   const displayId = (p: any) => {
+    if (p.record_id) return String(p.record_id);
     for (const k of idFields) { if (p.data?.[k]) return String(p.data[k]); }
-    // fallback: first non-name value that looks like a code/number
-    for (const f of fields) {
-      const v = p.data?.[f.field_key];
-      if (v && f.field_key !== nameField && /\d/.test(String(v)) && String(v).length <= 20) return String(v);
-    }
-    return p.record_id || '';
+    for (const k of idLabelFields) { if (p.data?.[k]) return String(p.data[k]); }
+    return '';
   };
   // Search the WHOLE record (every field) — same approach as the Staff list, which works.
   const searchText = (p: any) =>
