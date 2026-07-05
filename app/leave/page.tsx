@@ -1,11 +1,15 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
+import { getFeatureAccess } from '@/lib/permissions';
+import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import LeaveClient from './LeaveClient';
 
 export default async function LeavePage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();
+  const _access = await getFeatureAccess(profile, 'leave');
+  if (_access === 'none') redirect('/dashboard');
   const companyId = profile?.company_id || '';
 
   const [{ data: types }, { data: requests }, { data: empFields }, { data: policies }] = await Promise.all([

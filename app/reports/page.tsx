@@ -1,4 +1,6 @@
 import { getShellData } from '@/lib/shellData';
+import { getFeatureAccess } from '@/lib/permissions';
+import { redirect } from 'next/navigation';
 import { createServerClient } from '@/lib/supabase/server';
 import Shell from '@/components/Shell';
 import ReportsClient from './ReportsClient';
@@ -6,6 +8,8 @@ import ReportsClient from './ReportsClient';
 export default async function ReportsPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();
+  const _access = await getFeatureAccess(profile, 'reports');
+  if (_access === 'none') redirect('/dashboard');
 
   const { data: reports } = await supabase
     .from('ai_reports')

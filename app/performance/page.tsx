@@ -1,11 +1,15 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
+import { getFeatureAccess } from '@/lib/permissions';
+import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import PerformanceClient from './PerformanceClient';
 
 export default async function PerformancePage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();
+  const _access = await getFeatureAccess(profile, 'performance');
+  if (_access === 'none') redirect('/dashboard');
   const companyId = profile?.company_id || '';
 
   const [{ data: reviews }, { data: empFields }] = await Promise.all([

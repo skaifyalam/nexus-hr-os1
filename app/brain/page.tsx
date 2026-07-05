@@ -1,11 +1,15 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
+import { getFeatureAccess } from '@/lib/permissions';
+import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import BrainClient from './BrainClient';
 
 export default async function BrainPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();
+  const _access = await getFeatureAccess(profile, 'brain');
+  if (_access === 'none') redirect('/dashboard');
 
   const [{ data: documents }, { data: conversations }] = await Promise.all([
     supabase.from('brain_documents').select('*').order('uploaded_at', { ascending: false }),

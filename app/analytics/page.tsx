@@ -1,11 +1,15 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
+import { getFeatureAccess } from '@/lib/permissions';
+import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import AnalyticsClient from './AnalyticsClient';
 
 export default async function AnalyticsPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();
+  const _access = await getFeatureAccess(profile, 'analytics');
+  if (_access === 'none') redirect('/dashboard');
   const companyId = profile?.company_id || '';
 
   // Pull all stage history for the company
