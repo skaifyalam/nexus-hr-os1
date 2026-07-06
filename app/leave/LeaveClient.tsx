@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
+import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
 const COLORS = ['indigo', 'amber', 'emerald', 'rose', 'sky', 'violet', 'teal', 'slate'];
@@ -86,7 +87,15 @@ export default function LeaveClient({ initialTypes, initialRequests, initialPoli
       start_date: rStart, end_date: rEnd, days_count: rDays,
       reason: rReason, status: 'pending', requested_by: userEmail,
     }).select().single();
-    if (data) setRequests(p => [data, ...p]);
+    if (data) {
+      setRequests(p => [data, ...p]);
+      // Route through an approval workflow if one exists for 'leave'
+      await startApproval({
+        companyId, processKey: 'leave', sourceId: data.id,
+        title: `Leave — ${data.employee_name}, ${data.days_count} day(s)`,
+        requestedBy: userEmail,
+      });
+    }
     setREmp(''); setRType(''); setRStart(''); setREnd(''); setRReason(''); setAddOpen(false);
   };
 
