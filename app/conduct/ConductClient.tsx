@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Plus, X, AlertTriangle, LogOut, Download, ShieldAlert, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Plus, X, AlertTriangle, LogOut, Download, ShieldAlert, CheckCircle2, XCircle, Clock, Upload, Loader } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
 import { startApproval } from '@/lib/approvals';
@@ -12,13 +12,26 @@ const statusBadge = (s: string) =>
   : s === 'rejected' ? <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-50 text-red-600 rounded-full"><XCircle size={11} />rejected</span>
   : <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full"><Clock size={11} />{s.replace('_', ' ')}</span>;
 
-export default function ConductClient({ initialConduct, initialExits, employees, empFields, companyId, userEmail }: {
-  initialConduct: any[]; initialExits: any[]; employees: any[]; empFields: any[]; companyId: string; userEmail: string;
+export default function ConductClient({ initialConduct, initialExits, employees, empFields, activeConfig, companyId, userEmail }: {
+  initialConduct: any[]; initialExits: any[]; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
 }) {
   const [tab, setTab] = useState<'conduct' | 'exit'>('conduct');
   const [conduct, setConduct] = useState(initialConduct);
   const [exits, setExits] = useState(initialExits);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
   const supabase = createClient();
+  const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Mark an employee inactive by setting their active field to a non-active value
+  const markEmployeeInactive = async (personRecordId: string) => {
+    if (!activeConfig?.active_field_key || !personRecordId) return;
+    const emp = employees.find(e => e.id === personRecordId);
+    if (!emp) return;
+    // Set the active field to something NOT in active_values (use "Inactive")
+    const newData = { ...(emp.data || {}), [activeConfig.active_field_key]: 'Inactive' };
+    await supabase.from('section_records').update({ data: newData }).eq('id', personRecordId);
+  };
 
   const nameField = useMemo(() => empFields.find(f => /name/i.test(f.field_label))?.field_key, [empFields]);
   const idField = useMemo(() => empFields.find(f => f.is_id_field)?.field_key, [empFields]);
@@ -75,6 +88,10 @@ export default function ConductClient({ initialConduct, initialExits, employees,
     if (data) {
       const appr = await startApproval({ companyId, processKey: 'exit', sourceId: data.id, title: `Exit (${xType}) — ${data.person_name}`, requestedBy: userEmail });
       if (appr) { await supabase.from('exit_records').update({ approval_request_id: appr.id }).eq('id', data.id); }
+      // If last working day is today or past, mark the employee inactive immediately
+      if (xLwd && new Date(xLwd) <= new Date()) {
+        await markEmployeeInactive(xPerson);
+      }
       setExits(p => [{ ...data, approval_request_id: appr?.id }, ...p]);
     }
     setXPerson(''); setXType('resignation'); setXReason(''); setXLwd(''); setXNotice(''); setXOpen(false);
@@ -88,6 +105,82 @@ export default function ConductClient({ initialConduct, initialExits, employees,
 
   const fmt = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
+  const empByName = useMemo(() => new Map(employees.map(e => [norm(pName(e)), e])), [employees]);
+  const empByCode = useMemo(() => new Map(employees.map(e => [norm(pCode(e)), e])), [employees]);
+  const mc = (keys: string[], pats: string[]) => { for (const p of pats) { const h = keys.find(k => norm(k) === norm(p)); if (h) return h; } for (const p of pats) { const h = keys.find(k => norm(k).includes(norm(p))); if (h) return h; } return null; };
+  const toDate = (v: any) => { if (!v) return null; if (v instanceof Date) return v.toISOString().split('T')[0]; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]; };
+
+  const importConduct = (file: File) => {
+    setImporting(true); setImportMsg('Reading…');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        if (!rows.length) { setImportMsg('No rows.'); setImporting(false); return; }
+        const keys = Object.keys(rows[0]);
+        const cName = mc(keys, ['name', 'employee']); const cCode = mc(keys, ['code', 'id']);
+        const cType = mc(keys, ['type', 'record type']); const cSev = mc(keys, ['severity']);
+        const cSubj = mc(keys, ['subject', 'title']); const cDesc = mc(keys, ['description', 'details']);
+        const cAction = mc(keys, ['action']); const cDate = mc(keys, ['incident', 'date']);
+        const recs = rows.map(row => {
+          const emp = empByCode.get(norm(cCode ? row[cCode] : '')) || empByName.get(norm(cName ? row[cName] : ''));
+          return { company_id: companyId, person_record_id: emp?.id || null,
+            person_name: emp ? pName(emp) : (cName ? String(row[cName]) : 'Unknown'), person_code: emp ? pCode(emp) : (cCode ? String(row[cCode]) : ''),
+            record_type: cType ? String(row[cType]) : 'warning', severity: cSev ? String(row[cSev]).toLowerCase() : 'low',
+            subject: cSubj ? String(row[cSubj]) : 'Imported record', description: cDesc ? String(row[cDesc]) : '',
+            action_taken: cAction ? String(row[cAction]) : '', incident_date: cDate ? toDate(row[cDate]) : null, status: 'open', issued_by: userEmail };
+        });
+        let saved: any[] = [];
+        for (let i = 0; i < recs.length; i += 500) { const { data } = await supabase.from('conduct_records').insert(recs.slice(i, i + 500)).select(); if (data) saved = saved.concat(data); }
+        setConduct(p => [...saved, ...p]); setImportMsg(`Imported ${saved.length} conduct records.`);
+        setTimeout(() => setImportMsg(''), 5000);
+      } catch (err: any) { setImportMsg(`Failed: ${err.message}`); }
+      setImporting(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const importExit = (file: File) => {
+    setImporting(true); setImportMsg('Reading…');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        if (!rows.length) { setImportMsg('No rows.'); setImporting(false); return; }
+        const keys = Object.keys(rows[0]);
+        const cName = mc(keys, ['name', 'employee']); const cCode = mc(keys, ['code', 'id']);
+        const cType = mc(keys, ['exit type', 'type']); const cReason = mc(keys, ['reason']);
+        const cLwd = mc(keys, ['last working', 'last day', 'lwd', 'end date']); const cNotice = mc(keys, ['notice']);
+        const recs = rows.map(row => {
+          const emp = empByCode.get(norm(cCode ? row[cCode] : '')) || empByName.get(norm(cName ? row[cName] : ''));
+          return { company_id: companyId, person_record_id: emp?.id || null,
+            person_name: emp ? pName(emp) : (cName ? String(row[cName]) : 'Unknown'), person_code: emp ? pCode(emp) : (cCode ? String(row[cCode]) : ''),
+            exit_type: cType ? String(row[cType]).toLowerCase().replace(/ /g, '_') : 'resignation', reason: cReason ? String(row[cReason]) : '',
+            last_working_day: cLwd ? toDate(row[cLwd]) : null, notice_period: cNotice ? String(row[cNotice]) : '',
+            checklist: [], status: 'in_progress', processed_by: userEmail };
+        });
+        let saved: any[] = [];
+        for (let i = 0; i < recs.length; i += 500) { const { data } = await supabase.from('exit_records').insert(recs.slice(i, i + 500)).select(); if (data) saved = saved.concat(data); }
+        // Auto-inactivate anyone whose last day has passed
+        for (const r of saved) { if (r.person_record_id && r.last_working_day && new Date(r.last_working_day) <= new Date()) await markEmployeeInactive(r.person_record_id); }
+        setExits(p => [...saved, ...p]); setImportMsg(`Imported ${saved.length} exit records.`);
+        setTimeout(() => setImportMsg(''), 5000);
+      } catch (err: any) { setImportMsg(`Failed: ${err.message}`); }
+      setImporting(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const markInactiveNow = async (r: any) => {
+    if (!r.person_record_id) { alert('This exit is not linked to an employee record.'); return; }
+    await markEmployeeInactive(r.person_record_id);
+    await supabase.from('exit_records').update({ status: 'completed' }).eq('id', r.id);
+    setExits(p => p.map(x => x.id === r.id ? { ...x, status: 'completed' } : x));
+    alert(`${r.person_name} marked inactive.`);
+  };
+
   return (
     <div>
       <div className="flex items-start justify-between mb-6">
@@ -95,8 +188,14 @@ export default function ConductClient({ initialConduct, initialExits, employees,
           <h1 className="text-2xl font-bold text-slate-900">Conduct & Exit</h1>
           <p className="text-sm text-slate-500 mt-0.5">Warnings, misconduct, and offboarding — routed through your approval chains</p>
         </div>
-        <button onClick={() => tab === 'conduct' ? setCOpen(true) : setXOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />{tab === 'conduct' ? 'New Conduct Record' : 'New Exit'}</button>
+        <div className="flex gap-2">
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" id="ce-import" onChange={e => e.target.files?.[0] && (tab === 'conduct' ? importConduct(e.target.files[0]) : importExit(e.target.files[0]))} />
+          <button onClick={() => document.getElementById('ce-import')?.click()} disabled={importing} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
+          <button onClick={() => tab === 'conduct' ? setCOpen(true) : setXOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />{tab === 'conduct' ? 'New Conduct Record' : 'New Exit'}</button>
+        </div>
       </div>
+
+      {importMsg && <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-indigo-700 flex items-center gap-2">{importing && <Loader size={14} className="animate-spin" />}{importMsg}</div>}
 
       <div className="flex gap-2 mb-5">
         <button onClick={() => setTab('conduct')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'conduct' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><ShieldAlert size={14} />Conduct</button>
@@ -160,6 +259,9 @@ export default function ConductClient({ initialConduct, initialExits, employees,
                       </div>
                       <p className="text-xs text-slate-400 mt-1">Last day {fmt(r.last_working_day)}{r.notice_period ? ` · ${r.notice_period} notice` : ''}</p>
                       {r.reason && <p className="text-xs text-slate-500 mt-0.5">{r.reason}</p>}
+                      {r.person_record_id && activeConfig?.active_field_key && r.status !== 'completed' && (
+                        <button onClick={() => markInactiveNow(r)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:gap-2 transition-all"><LogOut size={12} />Mark employee inactive</button>
+                      )}
                     </div>
                     <button onClick={() => delExit(r.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><X size={13} /></button>
                   </div>
