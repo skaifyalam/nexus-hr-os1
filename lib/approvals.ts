@@ -51,6 +51,10 @@ export async function decideApproval(opts: {
   if (update.status === 'approved' || update.status === 'rejected') {
     if (request.process_key === 'leave') {
       await supabase.from('leave_requests').update({ status: update.status, decided_by: deciderName }).eq('id', request.source_id);
+    } else if (request.process_key === 'conduct') {
+      await supabase.from('conduct_records').update({ status: update.status }).eq('id', request.source_id);
+    } else if (request.process_key === 'exit') {
+      await supabase.from('exit_records').update({ status: update.status }).eq('id', request.source_id);
     }
   }
   return data;

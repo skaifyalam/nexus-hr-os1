@@ -13,6 +13,8 @@ export default function ApprovalsClient({ initialWorkflows, roles, sections, com
   const PROCESSES = [
     { key: 'leave', label: 'Leave Requests' },
     { key: 'requisition', label: 'Requisitions' },
+    { key: 'conduct', label: 'Conduct / Warnings' },
+    { key: 'exit', label: 'Exit / Offboarding' },
     { key: 'attendance', label: 'Attendance Changes' },
     { key: 'document', label: 'Document Updates' },
     ...sections.filter((s: any) => !['employee'].includes(s.section_key)).map((s: any) => ({ key: `section:${s.section_key}`, label: s.label })),
