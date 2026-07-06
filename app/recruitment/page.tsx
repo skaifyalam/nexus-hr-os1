@@ -1,4 +1,2 @@
 import { redirect } from 'next/navigation';
-export default function RecruitmentRedirect() {
-  redirect('/s/candidate');
-}
+export default function LegacyRecruitment() { redirect('/s/candidate'); }

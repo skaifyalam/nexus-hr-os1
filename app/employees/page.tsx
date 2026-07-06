@@ -1,4 +1,2 @@
 import { redirect } from 'next/navigation';
-export default function EmployeesRedirect() {
-  redirect('/s/employee');
-}
+export default function LegacyEmployees() { redirect('/s/employee'); }
