@@ -5,13 +5,14 @@ import { Search, X, ChevronDown, Check } from 'lucide-react';
 // A searchable picker for people (employees or candidates).
 // Searches across name + all identifier fields (code, passport, recruitment id).
 export default function PersonPicker({
-  people, fields, value, onChange, placeholder = 'Search by name or ID…',
+  people, fields, value, onChange, placeholder = 'Search by name or ID…', idFieldKey,
 }: {
   people: any[];
   fields: any[];
   value: string;
   onChange: (id: string) => void;
   placeholder?: string;
+  idFieldKey?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -38,8 +39,13 @@ export default function PersonPicker({
   [fields]);
 
   const displayId = (p: any) => {
+    // 1. Explicit ID field passed by parent (most reliable)
+    if (idFieldKey && p.data?.[idFieldKey]) return String(p.data[idFieldKey]);
+    // 2. record_id (canonical section ID)
     if (p.record_id) return String(p.record_id);
+    // 3. an explicitly-marked ID field
     for (const k of idFields) { if (p.data?.[k]) return String(p.data[k]); }
+    // 4. a field labelled like an ID (nationality/project/etc excluded)
     for (const k of idLabelFields) { if (p.data?.[k]) return String(p.data[k]); }
     return '';
   };

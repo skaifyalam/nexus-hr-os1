@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Plus, X, Star, Download, Award, TrendingUp, Filter } from 'lucide-react';
+import { Plus, X, Star, Download, Award, TrendingUp, Filter, Upload, Loader } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
 import { createClient } from '@/lib/supabase/client';
@@ -48,6 +48,58 @@ export default function PerformanceClient({ initialReviews, employees, empFields
     setReviews(p => p.filter(r => r.id !== id));
   };
 
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
+  const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const importReviews = (file: File) => {
+    setImporting(true); setImportMsg('Reading…');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        if (!rows.length) { setImportMsg('No rows.'); setImporting(false); return; }
+        const keys = Object.keys(rows[0]);
+        const mc = (pats: string[]) => { for (const p of pats) { const h = keys.find(k => norm(k) === norm(p)); if (h) return h; } for (const p of pats) { const h = keys.find(k => norm(k).includes(norm(p))); if (h) return h; } return null; };
+        const cName = mc(['employee name', 'name', 'employee']);
+        const cCode = mc(['code', 'id', 'employee code']);
+        const cCycle = mc(['cycle', 'period', 'year']);
+        const cRating = mc(['rating', 'score', 'stars']);
+        const cReviewer = mc(['reviewer', 'manager', 'by']);
+        const cGoals = mc(['goals', 'objectives']);
+        const cStrengths = mc(['strengths', 'strength']);
+        const cImprove = mc(['improvements', 'improvement', 'development']);
+        const empByName = new Map(employees.map(e => [norm(empName(e)), e]));
+        const empByCode = new Map(employees.map(e => [norm(empCode(e)), e]));
+        const recs = rows.map(row => {
+          const emp = empByCode.get(norm(cCode ? row[cCode] : '')) || empByName.get(norm(cName ? row[cName] : ''));
+          return {
+            company_id: companyId, employee_record_id: emp?.id || null,
+            employee_name: emp ? empName(emp) : (cName ? String(row[cName]) : 'Unknown'),
+            employee_code: emp ? empCode(emp) : (cCode ? String(row[cCode]) : ''),
+            cycle: cCycle ? String(row[cCycle]) : '2026 Annual',
+            rating: cRating ? Number(row[cRating]) || null : null,
+            reviewer: cReviewer ? String(row[cReviewer]) : '',
+            goals: cGoals ? String(row[cGoals]) : '', strengths: cStrengths ? String(row[cStrengths]) : '',
+            improvements: cImprove ? String(row[cImprove]) : '', status: 'submitted',
+          };
+        });
+        setImportMsg(`Saving ${recs.length}…`);
+        let saved: any[] = [];
+        for (let i = 0; i < recs.length; i += 500) {
+          const { data } = await supabase.from('performance_reviews').insert(recs.slice(i, i + 500)).select();
+          if (data) saved = saved.concat(data);
+        }
+        setReviews(p => [...saved, ...p]);
+        setImportMsg(`Imported ${saved.length} reviews.`);
+        setTimeout(() => setImportMsg(''), 5000);
+      } catch (err: any) { setImportMsg(`Failed: ${err.message}`); }
+      setImporting(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const exportReviews = () => {
     const rows = filtered.map(r => ({ Employee: r.employee_name, Code: r.employee_code, Cycle: r.cycle, Reviewer: r.reviewer, Rating: r.rating || '', Goals: r.goals || '', Strengths: r.strengths || '', Improvements: r.improvements || '', Date: r.review_date }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -74,10 +126,14 @@ export default function PerformanceClient({ initialReviews, employees, empFields
           <p className="text-sm text-slate-500 mt-0.5">{reviews.length} reviews · avg rating {avgRating}★</p>
         </div>
         <div className="flex gap-2">
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" id="perf-import" onChange={e => e.target.files?.[0] && importReviews(e.target.files[0])} />
+          <button onClick={() => document.getElementById('perf-import')?.click()} disabled={importing} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
           <button onClick={exportReviews} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
           <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />New Review</button>
         </div>
       </div>
+
+      {importMsg && <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-indigo-700 flex items-center gap-2">{importing && <Loader size={14} className="animate-spin" />}{importMsg}</div>}
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4 mb-5">

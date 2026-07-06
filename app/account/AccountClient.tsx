@@ -18,6 +18,21 @@ export default function AccountClient({ profile, isSuper, subscription, employee
   const [pwMsg, setPwMsg] = useState('');
   const [pwSaving, setPwSaving] = useState(false);
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState('');
+
+  const deleteAccount = async () => {
+    setDeleting(true); setDeleteMsg('');
+    try {
+      const res = await fetch('/api/delete-account', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) { setDeleteMsg(json.error || 'Delete failed.'); setDeleting(false); return; }
+      await supabase.auth.signOut();
+      window.location.href = '/';
+    } catch (e: any) { setDeleteMsg(e.message); setDeleting(false); }
+  };
+
   const saveProfile = async () => {
     setSavingProfile(true);
     await supabase.from('profiles').update({ full_name: fullName, phone }).eq('id', profile.id);
@@ -123,6 +138,26 @@ export default function AccountClient({ profile, isSuper, subscription, employee
               <p className="text-xl font-bold text-slate-900">{subscription?.status === 'trialing' ? `${trialDaysLeft}d` : (subscription?.status || 'Active')}</p>
             </div>
           </div>
+        </div>
+      )}
+      {/* Danger zone — SUPER USER ONLY */}
+      {isSuper && (
+        <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6 mt-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Lock size={16} className="text-red-400" />
+            <h3 className="text-sm font-semibold text-red-700">Delete Account</h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">Permanently delete your account and login. This cannot be undone. Your company data is not automatically removed — contact support if you also want company data erased.</p>
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} className="px-4 py-2.5 text-sm font-medium bg-white border border-red-200 text-red-600 rounded-xl hover:bg-red-50">Delete my account</button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-red-600">Are you sure? This is permanent.</span>
+              <button onClick={deleteAccount} disabled={deleting} className="px-4 py-2.5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50">{deleting ? 'Deleting…' : 'Yes, delete permanently'}</button>
+              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-600">Cancel</button>
+            </div>
+          )}
+          {deleteMsg && <p className="text-xs text-red-500 mt-2">{deleteMsg}</p>}
         </div>
       )}
     </div>
