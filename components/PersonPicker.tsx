@@ -30,24 +30,15 @@ export default function PersonPicker({
 
   const displayName = (p: any) => (nameField && p.data?.[nameField]) || 'Unnamed';
 
-  // Fields that are ID-like by label, EXCLUDING descriptive fields (nationality, project, etc.)
-  const idLabelFields = useMemo(() =>
-    fields.filter(f =>
-      /(employee.*code|emp.*code|employee.*id|staff.*id|passport|iqama|recruitment.*id|national.*id|\bcode\b|\bid\b)/i.test(f.field_label)
-      && !/(nationality|country|project|category|department|designation|agency|status)/i.test(f.field_label)
-    ).map(f => f.field_key),
-  [fields]);
+  // The AI marks the real ID field with is_id_field during import (Employee Code, Recruitment ID) —
+  // never nationality/passport/iqama. Use that first, then record_id. No unreliable label-guessing.
+  const aiIdField = useMemo(() => fields.find(f => f.is_id_field)?.field_key, [fields]);
 
   const displayId = (p: any) => {
-    // 1. Explicit ID field passed by parent (most reliable)
-    if (idFieldKey && p.data?.[idFieldKey]) return String(p.data[idFieldKey]);
-    // 2. record_id (canonical section ID)
-    if (p.record_id) return String(p.record_id);
-    // 3. an explicitly-marked ID field
-    for (const k of idFields) { if (p.data?.[k]) return String(p.data[k]); }
-    // 4. a field labelled like an ID (nationality/project/etc excluded)
-    for (const k of idLabelFields) { if (p.data?.[k]) return String(p.data[k]); }
-    return '';
+    if (idFieldKey && p.data?.[idFieldKey]) return String(p.data[idFieldKey]);   // explicit override
+    if (aiIdField && p.data?.[aiIdField]) return String(p.data[aiIdField]);       // AI-detected ID field
+    if (p.record_id) return String(p.record_id);                                 // canonical section ID
+    return '';                                                                    // honest: no ID marked
   };
   // Search the WHOLE record (every field) — same approach as the Staff list, which works.
   const searchText = (p: any) =>
