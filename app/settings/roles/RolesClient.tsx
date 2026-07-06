@@ -3,13 +3,29 @@ import { useState } from 'react';
 import { Plus, X, Shield, Mail, Loader, Check, Users, Key, Trash2, Edit2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function RolesClient({ initialRoles, initialProfiles, companyId, currentUserId, sections = [], empFields = [] }: {
-  initialRoles: any[]; initialProfiles: any[]; companyId: string; currentUserId: string; sections?: any[]; empFields?: any[];
+export default function RolesClient({ initialRoles, initialProfiles, companyId, currentUserId, sections = [], empFields = [], projectField = '', projectValues = [] }: {
+  initialRoles: any[]; initialProfiles: any[]; companyId: string; currentUserId: string; sections?: any[]; empFields?: any[]; projectField?: string; projectValues?: string[];
 }) {
   const [roles, setRoles] = useState(initialRoles);
   const [profiles, setProfiles] = useState(initialProfiles);
   const [tab, setTab] = useState<'users' | 'roles'>('users');
+  const [projField, setProjField] = useState(projectField);
   const supabase = createClient();
+
+  const saveProjectField = async (key: string) => {
+    setProjField(key);
+    await supabase.from('company_profile').update({ project_field_key: key || null }).eq('id', companyId);
+  };
+
+  // Per-user project scope
+  const [scopeUser, setScopeUser] = useState<any>(null);
+  const [scopeVals, setScopeVals] = useState<string[]>([]);
+  const openScope = (u: any) => { setScopeVals(u.project_scope || []); setScopeUser(u); };
+  const saveScope = async () => {
+    await supabase.from('profiles').update({ project_scope: scopeVals }).eq('id', scopeUser.id);
+    setProfiles(p => p.map(u => u.id === scopeUser.id ? { ...u, project_scope: scopeVals } : u));
+    setScopeUser(null);
+  };
 
   // Catalog of things a role's access can be set on
   const FEATURES = [
@@ -143,6 +159,17 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
 
       {tab === 'users' && (
         <div>
+          {/* Project field setting */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-slate-700">Project/Site field:</span>
+              <select value={projField} onChange={e => saveProjectField(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">— None (no project scoping) —</option>
+                {empFields.map((f: any) => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
+              </select>
+              <span className="text-xs text-slate-400">Pick which employee field represents project/site. Then scope users to specific projects below.</span>
+            </div>
+          </div>
           <div className="flex justify-end mb-4">
             <button onClick={() => setInviteOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Mail size={14} />Invite User</button>
           </div>
@@ -151,6 +178,7 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
               <thead><tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left text-xs font-medium text-slate-500 px-4 py-3">User</th>
                 <th className="text-left text-xs font-medium text-slate-500 px-4 py-3">Role</th>
+                <th className="text-left text-xs font-medium text-slate-500 px-4 py-3">Projects</th>
                 <th className="text-right text-xs font-medium text-slate-500 px-4 py-3">Actions</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
@@ -168,6 +196,17 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                           <option value="">No role</option>
                           {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.role === 'super_admin' ? (
+                        <span className="text-xs text-slate-400">All projects</span>
+                      ) : !projField ? (
+                        <span className="text-xs text-slate-300">—</span>
+                      ) : (u.project_scope?.length > 0) ? (
+                        <button onClick={() => openScope(u)} className="text-xs text-indigo-600 hover:underline">{u.project_scope.length} project(s)</button>
+                      ) : (
+                        <button onClick={() => openScope(u)} className="text-xs text-slate-400 hover:text-indigo-600">All — restrict</button>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -381,6 +420,41 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
               <button onClick={() => setPermRole(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={savePerms} disabled={savingPerm} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{savingPerm ? 'Saving…' : 'Save Permissions'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Project scope modal */}
+      {scopeUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setScopeUser(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Project Access</h2>
+                <p className="text-xs text-slate-400">{scopeUser.full_name || scopeUser.email}</p>
+              </div>
+              <button onClick={() => setScopeUser(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-xs text-slate-500">Tick the projects/sites this user can access. If none are ticked, they can see all projects.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {projectValues.map(v => {
+                  const on = scopeVals.includes(v);
+                  return (
+                    <button key={v} onClick={() => setScopeVals(p => on ? p.filter(x => x !== v) : [...p, v])}
+                      className={`px-2.5 py-1 rounded-lg border text-xs ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>
+                      {on ? '✓ ' : ''}{v}
+                    </button>
+                  );
+                })}
+                {projectValues.length === 0 && <span className="text-xs text-slate-400">No project values found. Make sure the project field is set and employees have that field filled.</span>}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
+              <button onClick={() => { setScopeVals([]); }} className="px-3 py-2.5 text-xs text-slate-500">Clear all</button>
+              <button onClick={() => setScopeUser(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={saveScope} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">Save Access</button>
             </div>
           </div>
         </div>

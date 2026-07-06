@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
-import { getConfidentialFields } from '@/lib/permissions';
+import { getConfidentialFields, getProjectScope } from '@/lib/permissions';
 import Shell from '@/components/Shell';
 import UniversalSection from './UniversalSection';
 import { notFound } from 'next/navigation';
@@ -41,7 +41,18 @@ export default async function SectionPage({ params }: { params: { key: string } 
   // Confidential-field enforcement: strip fields this role may not see
   const confidential = await getConfidentialFields(profile);
   const visibleFields = (fields || []).filter((f: any) => !confidential.includes(f.field_key));
-  const safeRecords = confidential.length === 0 ? records : records.map((r: any) => {
+
+  // Project-scope enforcement: restrict records to the user's assigned project(s)
+  const scope = await getProjectScope(profile, params.key);
+  let scopedRecords = records;
+  if (scope) {
+    const allowed = scope.values.map(v => String(v).toLowerCase());
+    scopedRecords = records.filter((r: any) =>
+      allowed.includes(String(r.data?.[scope.field] ?? '').toLowerCase())
+    );
+  }
+
+  const safeRecords = confidential.length === 0 ? scopedRecords : scopedRecords.map((r: any) => {
     const d = { ...(r.data || {}) };
     confidential.forEach(k => { delete d[k]; });
     return { ...r, data: d };

@@ -31,7 +31,7 @@ const ICON_MAP: Record<string, any> = {
   reports: BarChart3, boardroom: Presentation,
   folder: Folder, building: Building2, globe: Globe, users: Users,
   settings: Settings, layout: Layout, default: Folder,
-  card: CreditCard, hash: Hash,
+  card: CreditCard, hash: Hash, branch: GitBranch,
 };
 
 const ADMIN_NAV = [
@@ -39,6 +39,7 @@ const ADMIN_NAV = [
   { href: '/settings/departments', label: 'Departments', icon: 'settings', superOnly: false },
   { href: '/settings/agencies', label: 'Agencies', icon: 'building', superOnly: false },
   { href: '/settings/roles', label: 'Roles & Users', icon: 'users', superOnly: true },
+  { href: '/settings/approvals', label: 'Approval Workflows', icon: 'branch', superOnly: true },
   { href: '/settings/id-formats', label: 'ID Formats', icon: 'hash', superOnly: true },
 ];
 
@@ -355,7 +356,7 @@ export default function Shell({
                           <Edit2 size={11} />
                         </button>
                       )}
-                      {!s.is_core && isSuperAdmin && (
+                      {!s.is_core && !['employee','candidate','requisition'].includes(s.section_key) && isSuperAdmin && (
                         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteSection(s); }} title="Delete (if empty)" className={`p-1 rounded ${isActive(href) ? 'hover:bg-white/20 text-white/70' : 'hover:bg-red-50 text-slate-400 hover:text-red-500'}`}>
                           <X size={11} />
                         </button>
