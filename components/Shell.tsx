@@ -12,7 +12,7 @@ import Assistant from './Assistant';
 
 const FEATURE_ICONS: Record<string, any> = {
   compliance: Globe, analytics: TrendingUp, structure: GitBranch,
-  leave: Palmtree, attendance: Clock, performance: Award, documents: FileText,
+  leave: Palmtree, attendance: Clock, performance: Award, documents: FileText, visa: CreditCard,
 };
 
 const DEFAULT_FEATURES = [
@@ -23,6 +23,7 @@ const DEFAULT_FEATURES = [
   { key: 'attendance', label: 'Attendance', href: '/attendance' },
   { key: 'performance', label: 'Performance', href: '/performance' },
   { key: 'documents', label: 'Documents', href: '/documents' },
+  { key: 'visa', label: 'Visa Management', href: '/visa' },
 ];
 
 const ICON_MAP: Record<string, any> = {

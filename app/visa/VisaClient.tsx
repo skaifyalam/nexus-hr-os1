@@ -1,0 +1,347 @@
+'use client';
+import { useState, useMemo } from 'react';
+import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import PersonPicker from '@/components/PersonPicker';
+import { createClient } from '@/lib/supabase/client';
+
+const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, companyId }: {
+  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; companyId: string;
+}) {
+  const [blocks, setBlocks] = useState(initialBlocks);
+  const [allocations, setAllocations] = useState(initialAllocations);
+  const [addOpen, setAddOpen] = useState(false);
+  const [allocBlock, setAllocBlock] = useState<any>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
+  const supabase = createClient();
+
+  const nameField = useMemo(() => candFields.find(f => /name/i.test(f.field_label))?.field_key, [candFields]);
+  const passField = useMemo(() => candFields.find(f => /passport/i.test(f.field_label))?.field_key, [candFields]);
+  const idField = useMemo(() => candFields.find(f => f.is_id_field)?.field_key, [candFields]);
+  const pName = (p: any) => (nameField && p.data?.[nameField]) || p.record_id || 'Unnamed';
+  const pCode = (p: any) => (idField && p.data?.[idField]) || p.record_id || '';
+  const pPass = (p: any) => (passField && p.data?.[passField]) || '';
+
+  const activeAllocs = (blockId: string) => allocations.filter(a => a.visa_block_id === blockId && a.status !== 'cancelled');
+  const balanceOf = (b: any) => (b.total_quantity || 0) - activeAllocs(b.id).length;
+
+  const totals = useMemo(() => {
+    const total = blocks.reduce((s, b) => s + (b.total_quantity || 0), 0);
+    const used = allocations.filter(a => a.status !== 'cancelled').length;
+    return { total, used, available: total - used };
+  }, [blocks, allocations]);
+
+  // ─── New visa block ───
+  const [f, setF] = useState({ authority_number: '', visa_type: 'Work Visa', profession: '', nationality: '', sponsor: '', total_quantity: '1', issue_date: '', expiry_date: '', note: '' });
+  const setField = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+
+  const addBlock = async () => {
+    if (!f.authority_number.trim() && !f.profession.trim()) return;
+    const { data } = await supabase.from('visa_blocks').insert({
+      company_id: companyId, ...f, total_quantity: Number(f.total_quantity) || 1,
+      issue_date: f.issue_date || null, expiry_date: f.expiry_date || null,
+    }).select().single();
+    if (data) setBlocks(p => [data, ...p]);
+    setF({ authority_number: '', visa_type: 'Work Visa', profession: '', nationality: '', sponsor: '', total_quantity: '1', issue_date: '', expiry_date: '', note: '' });
+    setAddOpen(false);
+  };
+
+  const deleteBlock = async (id: string) => {
+    if (!confirm('Delete this visa and all its allocations?')) return;
+    await supabase.from('visa_blocks').delete().eq('id', id);
+    setBlocks(p => p.filter(b => b.id !== id));
+    setAllocations(p => p.filter(a => a.visa_block_id !== id));
+  };
+
+  // ─── Allocate a person ───
+  const [allocPerson, setAllocPerson] = useState('');
+  const allocate = async () => {
+    if (!allocPerson || !allocBlock) return;
+    const person = people.find(p => p.id === allocPerson);
+    const { data } = await supabase.from('visa_allocations').insert({
+      company_id: companyId, visa_block_id: allocBlock.id,
+      person_record_id: allocPerson, person_name: person ? pName(person) : '',
+      person_code: person ? pCode(person) : '', passport_number: person ? pPass(person) : '',
+      status: 'allocated',
+    }).select().single();
+    if (data) setAllocations(p => [...p, data]);
+    setAllocPerson('');
+  };
+
+  const removeAlloc = async (id: string) => {
+    await supabase.from('visa_allocations').delete().eq('id', id);
+    setAllocations(p => p.filter(a => a.id !== id));
+  };
+
+  // ─── Swap a visa allocation from one person to another ───
+  const [swapAlloc, setSwapAlloc] = useState<any>(null);
+  const [swapPerson, setSwapPerson] = useState('');
+  const doSwap = async () => {
+    if (!swapPerson || !swapAlloc) return;
+    const person = people.find(p => p.id === swapPerson);
+    if (!person) return;
+    const prevName = swapAlloc.person_name;
+    const note = `Swapped from ${prevName || 'previous'} on ${new Date().toLocaleDateString('en-GB')}${swapAlloc.note ? ` · ${swapAlloc.note}` : ''}`;
+    const { data } = await supabase.from('visa_allocations').update({
+      person_record_id: swapPerson, person_name: pName(person),
+      person_code: pCode(person), passport_number: pPass(person),
+      status: 'allocated', note,
+    }).eq('id', swapAlloc.id).select().single();
+    if (data) setAllocations(p => p.map(a => a.id === swapAlloc.id ? data : a));
+    setSwapAlloc(null); setSwapPerson('');
+  };
+  const setAllocStatus = async (id: string, status: string) => {
+    await supabase.from('visa_allocations').update({ status }).eq('id', id);
+    setAllocations(p => p.map(a => a.id === id ? { ...a, status } : a));
+  };
+
+  // ─── Bulk import visa blocks ───
+  const importFile = (file: File) => {
+    setImporting(true); setImportMsg('Reading…');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary', cellDates: true });
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        if (!rows.length) { setImportMsg('No rows.'); setImporting(false); return; }
+        const keys = Object.keys(rows[0]);
+        const mc = (pats: string[]) => { for (const p of pats) { const h = keys.find(k => norm(k) === norm(p)); if (h) return h; } for (const p of pats) { const h = keys.find(k => norm(k).includes(norm(p))); if (h) return h; } return null; };
+        const cAuth = mc(['authority', 'visa number', 'authority number', 'number']);
+        const cType = mc(['visa type', 'type']);
+        const cProf = mc(['profession', 'designation', 'job']);
+        const cNat = mc(['nationality', 'country']);
+        const cSponsor = mc(['sponsor', 'company']);
+        const cQty = mc(['quantity', 'qty', 'count', 'total']);
+        const cExp = mc(['expiry', 'expiry date']);
+        const toDate = (v: any) => { if (!v) return null; if (v instanceof Date) return v.toISOString().split('T')[0]; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]; };
+        const recs = rows.map(row => ({
+          company_id: companyId,
+          authority_number: cAuth ? String(row[cAuth]) : '',
+          visa_type: cType ? String(row[cType]) : 'Work Visa',
+          profession: cProf ? String(row[cProf]) : '',
+          nationality: cNat ? String(row[cNat]) : '',
+          sponsor: cSponsor ? String(row[cSponsor]) : '',
+          total_quantity: cQty ? (Number(row[cQty]) || 1) : 1,
+          expiry_date: cExp ? toDate(row[cExp]) : null,
+        }));
+        setImportMsg(`Saving ${recs.length}…`);
+        let saved: any[] = [];
+        for (let i = 0; i < recs.length; i += 500) {
+          const { data } = await supabase.from('visa_blocks').insert(recs.slice(i, i + 500)).select();
+          if (data) saved = saved.concat(data);
+        }
+        setBlocks(p => [...saved, ...p]);
+        setImportMsg(`Imported ${saved.length} visas.`);
+        setTimeout(() => setImportMsg(''), 5000);
+      } catch (err: any) { setImportMsg(`Failed: ${err.message}`); }
+      setImporting(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const exportFile = () => {
+    const rows = blocks.map(b => ({
+      'Authority Number': b.authority_number, 'Type': b.visa_type, 'Profession': b.profession,
+      'Nationality': b.nationality, 'Sponsor': b.sponsor, 'Total': b.total_quantity,
+      'Allocated': activeAllocs(b.id).length, 'Balance': balanceOf(b), 'Expiry': b.expiry_date || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Visas');
+    XLSX.writeFile(wb, 'visa-summary.xlsx');
+  };
+
+  const fmt = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+
+  return (
+    <div>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Visa Management</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Track visa authorizations, allocate to people, monitor balances</p>
+        </div>
+        <div className="flex gap-2">
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" id="visa-import" onChange={e => e.target.files?.[0] && importFile(e.target.files[0])} />
+          <button onClick={() => document.getElementById('visa-import')?.click()} disabled={importing} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
+          <button onClick={exportFile} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
+          <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />Add Visa</button>
+        </div>
+      </div>
+
+      {importMsg && <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-indigo-700 flex items-center gap-2">{importing && <Loader size={14} className="animate-spin" />}{importMsg}</div>}
+
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-1"><CreditCard size={15} className="text-indigo-500" /><span className="text-xs font-medium text-slate-500">Total Visas</span></div>
+          <p className="text-2xl font-bold text-slate-900">{totals.total}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-1"><Users size={15} className="text-amber-500" /><span className="text-xs font-medium text-slate-500">Allocated</span></div>
+          <p className="text-2xl font-bold text-amber-600">{totals.used}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-1"><CheckCircle2 size={15} className="text-emerald-500" /><span className="text-xs font-medium text-slate-500">Available Balance</span></div>
+          <p className="text-2xl font-bold text-emerald-600">{totals.available}</p>
+        </div>
+      </div>
+
+      {blocks.length === 0 ? (
+        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-14 text-center">
+          <CreditCard size={36} className="text-slate-200 mx-auto mb-4" />
+          <p className="text-sm font-medium text-slate-600 mb-1">No visas tracked yet</p>
+          <p className="text-xs text-slate-400">Add a visa authorization or import from Excel. Then allocate people and watch the balance.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {blocks.map(b => {
+            const allocs = activeAllocs(b.id);
+            const bal = balanceOf(b);
+            return (
+              <div key={b.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 group">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-800">{b.authority_number || b.profession || 'Visa'}</span>
+                      <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full">{b.visa_type}</span>
+                      {b.profession && <span className="text-xs text-slate-500">{b.profession}</span>}
+                      {b.nationality && <span className="text-xs text-slate-400">· {b.nationality}</span>}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {b.sponsor && `${b.sponsor} · `}Expires {fmt(b.expiry_date)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <p className={`text-lg font-bold ${bal <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{bal}<span className="text-xs text-slate-400 font-normal"> / {b.total_quantity}</span></p>
+                      <p className="text-xs text-slate-400">available</p>
+                    </div>
+                    <button onClick={() => deleteBlock(b.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+
+                {/* Allocated people */}
+                {allocs.length > 0 && (
+                  <div className="space-y-1.5 mb-3">
+                    {allocs.map(a => (
+                      <div key={a.id} className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg ${a.status === 'used' ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                        <span className="font-medium text-slate-700">{a.person_name}{a.person_code ? ` (${a.person_code})` : ''}</span>
+                        {a.passport_number && <span className="text-slate-400 font-mono">{a.passport_number}</span>}
+                        {a.note && a.note.startsWith('Swapped') && <span className="text-amber-600 italic">↻ {a.note}</span>}
+                        <div className="ml-auto flex items-center gap-1.5">
+                          <select value={a.status} onChange={e => setAllocStatus(a.id, e.target.value)} className="bg-transparent text-xs focus:outline-none cursor-pointer text-slate-500">
+                            <option value="allocated">allocated</option>
+                            <option value="used">used</option>
+                          </select>
+                          <button onClick={() => { setSwapAlloc(a); setSwapPerson(''); }} title="Swap to another person" className="text-slate-400 hover:text-indigo-600 font-medium">Swap</button>
+                          <button onClick={() => removeAlloc(a.id)} title="Remove" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button onClick={() => { setAllocBlock(b); setAllocPerson(''); }} disabled={bal <= 0}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                  <UserPlus size={13} />{bal <= 0 ? 'No balance left' : 'Allocate person'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add visa modal */}
+      {addOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setAddOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <h2 className="text-base font-semibold text-slate-900">Add Visa</h2>
+              <button onClick={() => setAddOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 grid grid-cols-2 gap-3">
+              <div className="space-y-1.5 col-span-2"><label className="text-sm font-medium text-slate-700">Authority / Visa Number</label>
+                <input value={f.authority_number} onChange={e => setField('authority_number', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Visa Type</label>
+                <input value={f.visa_type} onChange={e => setField('visa_type', e.target.value)} placeholder="Work Visa / TCV" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Quantity</label>
+                <input type="number" value={f.total_quantity} onChange={e => setField('total_quantity', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Profession</label>
+                <input value={f.profession} onChange={e => setField('profession', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Nationality</label>
+                <input value={f.nationality} onChange={e => setField('nationality', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5 col-span-2"><label className="text-sm font-medium text-slate-700">Sponsor</label>
+                <input value={f.sponsor} onChange={e => setField('sponsor', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Issue Date</label>
+                <input type="date" value={f.issue_date} onChange={e => setField('issue_date', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Expiry Date</label>
+                <input type="date" value={f.expiry_date} onChange={e => setField('expiry_date', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
+              <button onClick={() => setAddOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={addBlock} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">Add Visa</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Allocate modal */}
+      {allocBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setAllocBlock(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Allocate Person</h2>
+                <p className="text-xs text-slate-400">{allocBlock.authority_number || allocBlock.profession} · {balanceOf(allocBlock)} left</p>
+              </div>
+              <button onClick={() => setAllocBlock(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Person (candidate or employee)</label>
+                <PersonPicker people={people} fields={candFields} value={allocPerson} onChange={setAllocPerson} placeholder="Search by name, ID or passport…" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setAllocBlock(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Close</button>
+              <button onClick={allocate} disabled={!allocPerson} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">Allocate</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Swap modal */}
+      {swapAlloc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSwapAlloc(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Swap Visa</h2>
+                <p className="text-xs text-slate-400">Currently held by {swapAlloc.person_name}</p>
+              </div>
+              <button onClick={() => setSwapAlloc(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 text-xs text-amber-700">
+                This moves the visa to a new person (e.g. the current one is unfit). The visa balance stays the same — no slot is used up. The swap is recorded in the allocation's history.
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">New person</label>
+                <PersonPicker people={people} fields={candFields} value={swapPerson} onChange={setSwapPerson} placeholder="Search the replacement by name, ID or passport…" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setSwapAlloc(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={doSwap} disabled={!swapPerson} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">Confirm Swap</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
