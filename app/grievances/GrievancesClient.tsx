@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react';
 import { Plus, X, MessageSquareWarning, CheckCircle2, Clock, Eye, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
+import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
 const STATUS = {
@@ -45,7 +46,10 @@ export default function GrievancesClient({ initialGrievances, employees, empFiel
       category: gCategory, subject: gSubject.trim(), description: gDesc,
       is_anonymous: gAnon, status: 'submitted', raised_by: gAnon ? 'anonymous' : userEmail,
     }).select().single();
-    if (data) setItems(p => [data, ...p]);
+    if (data) {
+      setItems(p => [data, ...p]);
+      await startApproval({ companyId, processKey: 'grievance', sourceId: data.id, title: `Grievance — ${data.subject}`, requestedBy: gAnon ? 'anonymous' : userEmail });
+    }
     setGPerson(''); setGCategory('general'); setGSubject(''); setGDesc(''); setGAnon(false); setAddOpen(false);
   };
 

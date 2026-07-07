@@ -55,6 +55,8 @@ export async function decideApproval(opts: {
       await supabase.from('conduct_records').update({ status: update.status }).eq('id', request.source_id);
     } else if (request.process_key === 'exit') {
       await supabase.from('exit_records').update({ status: update.status }).eq('id', request.source_id);
+    } else if (request.process_key === 'grievance') {
+      await supabase.from('grievances').update({ status: update.status === 'approved' ? 'in_review' : 'closed' }).eq('id', request.source_id);
     }
   }
   return data;

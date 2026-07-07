@@ -2,9 +2,10 @@
 import { useState, useRef, useMemo } from 'react';
 import {
   Plus, X, Search, Upload, Loader, Download, LayoutGrid, Table2,
-  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock,
+  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock, User,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
 export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], companyId, userEmail = '' }: {
@@ -151,7 +152,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
       }
       const { data } = await supabase.from('section_records')
         .insert({ company_id: companyId, section_key: section.section_key, record_id: recordId, data: form }).select().single();
-      if (data) setRecords(p => [data, ...p]);
+      if (data) {
+        setRecords(p => [data, ...p]);
+        // Route through approval if a workflow exists for this section's process key
+        const title = `New ${section.label} — ${recordId || Object.values(form)[0] || 'record'}`;
+        await startApproval({ companyId, processKey: section.section_key, sourceId: data.id, title, requestedBy: userEmail });
+      }
     }
     setForm({}); setEditingId(null); setAddOpen(false);
   };
@@ -612,6 +618,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     ))}
                     <td className="px-4 py-3">
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {section.section_key === 'employee' && <a href={`/employee/${r.id}`} title="View 360 profile" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><User size={13} /></a>}
                         {stageField && <button onClick={() => openHistory(r)} title="Stage history" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><Clock size={13} /></button>}
                         <button onClick={() => editRecord(r)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
                         <button onClick={() => deleteRecord(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
