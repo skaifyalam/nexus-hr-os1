@@ -613,6 +613,8 @@ export default function UniversalSection({ section, initialFields, initialRecord
                           </div>
                         ) : f.is_id_field ? <span className="font-mono text-xs text-slate-400">{r.data?.[f.field_key]}</span>
                          : f.field_type === 'boolean' ? (r.data?.[f.field_key] ? '✓' : '—')
+                         : (section.section_key === 'employee' && f.id === nameField?.id)
+                           ? <a href={`/employee/${r.id}`} className="text-indigo-600 hover:text-indigo-700 hover:underline font-medium">{r.data?.[f.field_key] || '—'}</a>
                          : String(r.data?.[f.field_key] || '—')}
                       </td>
                     ))}
