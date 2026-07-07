@@ -1,13 +1,26 @@
 'use client';
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, User, Palmtree, Clock, Award, FileText, CreditCard, ShieldAlert, LogOut, MessageSquareWarning, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, User, Palmtree, Clock, Award, FileText, CreditCard, ShieldAlert, LogOut, MessageSquareWarning, CheckCircle2, AlertTriangle, Pencil } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 const daysUntil = (d: string) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
 const fmt = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 export default function Employee360({ emp, empFields, leave, attendance, performance, documents, visaAllocs, conduct, exits, grievances }: any) {
   const [tab, setTab] = useState('overview');
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
+  const [saving, setSaving] = useState(false);
+  const supabase = createClient();
+
+  const saveEdits = async () => {
+    setSaving(true);
+    const { error } = await supabase.from('section_records').update({ data: editForm, updated_at: new Date().toISOString() }).eq('id', emp.id);
+    setSaving(false);
+    if (!error) { emp.data = editForm; setEditing(false); }
+    else alert('Save failed: ' + error.message);
+  };
 
   const nameField = useMemo(() => empFields.find((f: any) => /name/i.test(f.field_label))?.field_key, [empFields]);
   const name = (nameField && emp.data?.[nameField]) || emp.record_id || 'Employee';
@@ -83,12 +96,26 @@ export default function Employee360({ emp, empFields, leave, attendance, perform
             </div>
           )}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <p className="text-sm font-semibold text-slate-800 mb-3">Employee Details</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-slate-800">Employee Details</p>
+              {!editing ? (
+                <button onClick={() => { setEditForm(emp.data || {}); setEditing(true); }} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:gap-2 transition-all"><Pencil size={13} />Edit</button>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={() => setEditing(false)} className="text-xs text-slate-500 px-2 py-1">Cancel</button>
+                  <button onClick={saveEdits} disabled={saving} className="inline-flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+                </div>
+              )}
+            </div>
             <div className="grid md:grid-cols-3 gap-x-6 gap-y-3">
               {detailFields.map((f: any) => (
                 <div key={f.field_key}>
                   <p className="text-xs text-slate-400">{f.field_label}</p>
-                  <p className="text-sm text-slate-700">{emp.data?.[f.field_key] || '—'}</p>
+                  {editing ? (
+                    <input value={editForm[f.field_key] ?? ''} onChange={e => setEditForm((p: any) => ({ ...p, [f.field_key]: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mt-0.5" />
+                  ) : (
+                    <p className="text-sm text-slate-700">{emp.data?.[f.field_key] || '—'}</p>
+                  )}
                 </div>
               ))}
             </div>
