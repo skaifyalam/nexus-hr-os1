@@ -1,5 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
+import { loadPeopleForPicker } from '@/lib/people';
 import { getFeatureAccess } from '@/lib/permissions';
 import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
@@ -18,17 +19,12 @@ export default async function VisaPage() {
     supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'candidate').order('display_order'),
   ]);
 
-  // Load candidates + employees for allocation picker
-  let people: any[] = [];
-  for (const sk of ['candidate', 'employee']) {
-    for (let from = 0; ; from += 1000) {
-      const { data } = await supabase.from('section_records').select('id, record_id, data, section_key')
-        .eq('company_id', companyId).eq('section_key', sk).range(from, from + 999);
-      if (!data || data.length === 0) break;
-      people = people.concat(data);
-      if (data.length < 1000) break;
-    }
-  }
+  // Load candidates + employees for allocation picker (trimmed — fast on large datasets)
+  const [{ people: cands }, { people: emps }] = await Promise.all([
+    loadPeopleForPicker(companyId, 'candidate'),
+    loadPeopleForPicker(companyId, 'employee'),
+  ]);
+  const people = [...cands, ...emps];
 
   return (
     <Shell current="/visa" profile={profile} sections={sections} companyId={companyId}>

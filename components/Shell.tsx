@@ -5,14 +5,14 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
-  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award, FileText, ShieldAlert,
+  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award, FileText, ShieldAlert, MessageSquareWarning,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Assistant from './Assistant';
 
 const FEATURE_ICONS: Record<string, any> = {
   compliance: Globe, analytics: TrendingUp, structure: GitBranch,
-  leave: Palmtree, attendance: Clock, performance: Award, documents: FileText, visa: CreditCard, approvals: GitBranch, conduct: ShieldAlert,
+  leave: Palmtree, attendance: Clock, performance: Award, documents: FileText, visa: CreditCard, approvals: GitBranch, conduct: ShieldAlert, grievances: MessageSquareWarning,
 };
 
 const DEFAULT_FEATURES = [
@@ -26,6 +26,7 @@ const DEFAULT_FEATURES = [
   { key: 'visa', label: 'Visa Management', href: '/visa' },
   { key: 'approvals', label: 'Approvals', href: '/approvals' },
   { key: 'conduct', label: 'Conduct & Exit', href: '/conduct' },
+  { key: 'grievances', label: 'Grievances', href: '/grievances' },
 ];
 
 const ICON_MAP: Record<string, any> = {

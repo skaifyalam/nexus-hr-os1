@@ -1,5 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server';
 import { getShellData } from '@/lib/shellData';
+import { loadPeopleForPicker } from '@/lib/people';
 import { getFeatureAccess } from '@/lib/permissions';
 import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
@@ -17,14 +18,7 @@ export default async function PerformancePage() {
     supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'employee').order('display_order'),
   ]);
 
-  let employees: any[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data } = await supabase.from('section_records').select('id, record_id, data')
-      .eq('company_id', companyId).eq('section_key', 'employee').range(from, from + 999);
-    if (!data || data.length === 0) break;
-    employees = employees.concat(data);
-    if (data.length < 1000) break;
-  }
+  const { people: employees } = await loadPeopleForPicker(companyId, 'employee');
 
   return (
     <Shell current="/performance" profile={profile} sections={sections} companyId={companyId}>

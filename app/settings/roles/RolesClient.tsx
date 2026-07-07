@@ -38,6 +38,7 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
     { key: 'documents', label: 'Documents' },
     { key: 'visa', label: 'Visa Management' },
     { key: 'conduct', label: 'Conduct & Exit' },
+    { key: 'grievances', label: 'Grievances' },
     { key: 'brain', label: 'Company Brain' },
     { key: 'reports', label: 'AI Reports' },
   ];
