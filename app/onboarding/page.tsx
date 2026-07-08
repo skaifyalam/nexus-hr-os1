@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, ChevronRight, ChevronLeft, Loader, Plus, X, Building2, Users, Globe, Settings, GitBranch, Calendar, TrendingUp, AlertTriangle, DoorOpen } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -31,6 +31,28 @@ export default function OnboardingPage() {
   const [customSections, setCustomSections] = useState<{ name: string }[]>([]);
   const [newSection, setNewSection] = useState('');
   const [finishError, setFinishError] = useState('');
+
+  // If the user already has a company (e.g. just created via "New Company"),
+  // pre-fill its name so they don't type it twice.
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single();
+      if (profile?.company_id) {
+        const { data: company } = await supabase.from('company_profile')
+          .select('name, industry, size_range').eq('id', profile.company_id).maybeSingle();
+        if (company?.name) {
+          setInfo(prev => ({
+            name: company.name || prev.name,
+            industry: company.industry || prev.industry,
+            size: company.size_range || prev.size,
+          }));
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleCountry = (c: string) => setSelectedCountries(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c]);
   const toggleModule = (k: string) => setSelectedModules(p => p.includes(k) ? p.filter(x => x !== k) : [...p, k]);
