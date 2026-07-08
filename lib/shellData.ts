@@ -11,7 +11,8 @@ export async function getShellData() {
     .from('company_sections')
     .select('*')
     .eq('company_id', profile?.company_id)
-    .order('sidebar_order');
+    .order('sidebar_order', { ascending: true, nullsFirst: true })
+    .order('created_at', { ascending: true });
 
   return {
     profile: profile || null,
