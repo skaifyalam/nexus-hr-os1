@@ -249,15 +249,31 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
   };
 
   const exportFile = () => {
-    const rows = blocks.map(b => ({
+    // Sheet 1: block summary
+    const blockRows = blocks.map(b => ({
       'Authority Number': b.authority_number, 'Type': b.visa_type, 'Profession': b.profession,
-      'Nationality': b.nationality, 'Sponsor': b.sponsor, 'Total': b.total_quantity,
-      'Allocated': activeAllocs(b.id).length, 'Balance': balanceOf(b), 'Expiry': b.expiry_date || '',
+      'Nationality': b.nationality, 'Sponsor': b.sponsor, 'Total Visas': b.total_quantity,
+      'In Process': chasingCount(b.id), 'Stamped': stampedCount(b.id), 'Balance': balanceOf(b),
+      'Expiry': b.expiry_date || '',
     }));
-    const ws = XLSX.utils.json_to_sheet(rows);
+    // Sheet 2: full allocation tracker with all workflow dates
+    const allocRows = allocations.filter(a => a.stage !== 'cancelled').map(a => {
+      const block = blocks.find(b => b.id === a.visa_block_id);
+      return {
+        'Candidate': a.person_name, 'Code': a.person_code, 'Passport': a.passport_number,
+        'Agency': a.agency_name, 'Block': block?.authority_number || '', 'Visa Type': a.visa_type,
+        'Stage': STAGE_LABEL[a.stage] || a.stage,
+        'Allocated Date': a.allocated_date || (a.created_at ? new Date(a.created_at).toLocaleDateString('en-GB') : ''),
+        'Ewakala Issued': a.ewakala_issued_date || '',
+        'Passport Submitted': a.passport_submitted_date || '',
+        'Stamped Date': a.stamped_date || '',
+      };
+    });
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Visas');
-    XLSX.writeFile(wb, 'visa-summary.xlsx');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(blockRows), 'Block Summary');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allocRows), 'Allocation Tracker');
+    const stamp = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `naibus-visa-tracker-${stamp}.xlsx`);
   };
 
   const fmt = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';

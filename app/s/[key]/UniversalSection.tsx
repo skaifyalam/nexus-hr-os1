@@ -281,6 +281,15 @@ export default function UniversalSection({ section, initialFields, initialRecord
       .eq('id', record.id).select().single();
     if (updated) setRecords(p => p.map(r => r.id === record.id ? updated : r));
 
+    // Reverse visa sync: if this is a candidate and the new status maps to a visa stage,
+    // advance their visa allocation to match (fire-and-forget).
+    if (section.section_key === 'candidate') {
+      fetch('/api/sync-visa-stage', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personRecordId: record.id, newStatus }),
+      }).catch(() => {});
+    }
+
     // Log to history
     await supabase.from('stage_history').insert({
       company_id: companyId,

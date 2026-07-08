@@ -91,11 +91,26 @@ export async function POST(req: Request) {
     const { data: brainDocs } = await supabase.from('brain_documents')
       .select('title').eq('company_id', company_id);
 
+    // Visa management snapshot (blocks + allocation stages)
+    const { data: visaBlocks } = await supabase.from('visa_blocks').select('*').eq('company_id', company_id);
+    const { data: visaAllocs } = await supabase.from('visa_allocations').select('stage, agency_name, visa_type').eq('company_id', company_id);
+    const stageCount = (s: string) => (visaAllocs || []).filter((a: any) => a.stage === s).length;
+    const visaSnapshot = {
+      total_blocks: (visaBlocks || []).length,
+      total_visas: (visaBlocks || []).reduce((s: number, b: any) => s + (b.total_quantity || 0), 0),
+      allocations_total: (visaAllocs || []).filter((a: any) => a.stage !== 'cancelled').length,
+      ewakala_pending: stageCount('ewakala_pending'),
+      ewakala_issued: stageCount('ewakala_issued'),
+      passport_submitted: stageCount('passport_submitted'),
+      stamped: stageCount('stamped'),
+    };
+
     const today = new Date();
     const snapshot = {
       generated_at: today.toISOString(),
       report_type,
       company_sections: sectionsSnapshot,
+      visa_management: visaSnapshot,
       loaded_policies: (brainDocs || []).map((d: any) => d.title),
     };
 
