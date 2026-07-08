@@ -10,7 +10,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'GEMINI_API_KEY is not configured in environment variables.' }, { status: 500 });
     }
 
-    const systemText = system || 'You are NEXUS HR AI, an expert HR assistant for a company operating in the GCC region (Saudi Arabia / Aramco project context). Be professional, concise, and accurate.';
+    const systemText = system || 'You are Naibus AI, an expert HR assistant for a company operating in the GCC region (Saudi Arabia / Aramco project context). Be professional, concise, and accurate.';
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`,

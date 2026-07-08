@@ -53,7 +53,7 @@ export default function WelcomeGuide({ sections, hasData, companyName }: {
         <span className="text-xs font-semibold uppercase tracking-wider text-white/70">Getting Started</span>
       </div>
       <h2 className="text-xl font-bold mb-1">Welcome{companyName ? `, ${companyName}` : ''} 👋</h2>
-      <p className="text-sm text-white/80 mb-5 max-w-lg">Your workspace is empty and ready. The fastest way to see NEXUS HR come alive is to upload one Excel file — everything builds from your own data.</p>
+      <p className="text-sm text-white/80 mb-5 max-w-lg">Your workspace is empty and ready. The fastest way to see Naibus come alive is to upload one Excel file — everything builds from your own data.</p>
 
       <div className="grid md:grid-cols-3 gap-3">
         {steps.map((s, i) => (

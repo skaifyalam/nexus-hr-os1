@@ -130,7 +130,7 @@ export default function OnboardingPage() {
               <span className="text-white text-sm font-bold">N</span>
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-900">NEXUS HR</p>
+              <p className="text-sm font-bold text-slate-900">Naibus</p>
               <p className="text-xs text-slate-400">Setup Wizard</p>
             </div>
           </div>
@@ -293,7 +293,7 @@ export default function OnboardingPage() {
               </div>
               <div>
                 <h2 className="text-xl font-bold text-slate-900">{info.name} is ready</h2>
-                <p className="text-sm text-slate-500 mt-1">Your NEXUS HR platform is configured and ready to use</p>
+                <p className="text-sm text-slate-500 mt-1">Your Naibus platform is configured and ready to use</p>
               </div>
               <div className="w-full bg-slate-50 rounded-xl p-4 text-left space-y-2">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Your setup</p>
@@ -330,7 +330,7 @@ export default function OnboardingPage() {
 
           {step === 4 && (
             <button onClick={finish} disabled={saving} className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50">
-              {saving ? <><Loader size={14} className="animate-spin" /> Setting up…</> : <>Launch NEXUS HR <ChevronRight size={15} /></>}
+              {saving ? <><Loader size={14} className="animate-spin" /> Setting up…</> : <>Launch Naibus <ChevronRight size={15} /></>}
             </button>
           )}
         </div>

@@ -290,10 +290,10 @@ export default function Shell({
         </div>
         <div className="px-4 py-5 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center">
-              <span className="text-white text-xs font-bold">N</span>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #2563EB 0%, #06B6D4 100%)' }}>
+              <span className="text-white text-sm font-bold">N</span>
             </div>
-            <div><p className="text-sm font-bold text-slate-900">NEXUS HR</p><p className="text-xs text-slate-400">Enterprise Platform</p></div>
+            <div><p className="text-sm font-bold" style={{ color: '#0F172A' }}>Naibus</p><p className="text-xs" style={{ color: '#06B6D4' }}>Business OS</p></div>
           </div>
         </div>
 

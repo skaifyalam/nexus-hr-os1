@@ -5,7 +5,7 @@ import { callGemini } from '@/lib/gemini';
 const gemini = async (prompt: string) => {
   const { text, error } = await callGemini({
     systemInstruction: {
-      parts: [{ text: `You are NEXUS HR AI Report Generator for a GCC enterprise company.
+      parts: [{ text: `You are Naibus AI Report Generator for a GCC enterprise company.
 Generate professional HR reports using ONLY the data provided.
 Use markdown formatting: # for main title, ## for sections, ### for subsections.
 Use tables with | separators for tabular data.

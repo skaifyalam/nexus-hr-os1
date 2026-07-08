@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
     // ── ACTION: process a newly uploaded document ──────────────
     if (action === 'process_document') {
-      const system = `You are NEXUS HR AI — an expert HR and legal document analyst for GCC companies. 
+      const system = `You are Naibus AI — an expert HR and legal document analyst for GCC companies. 
 Extract structured information from documents clearly and concisely.`;
 
       // Generate summary
@@ -80,7 +80,7 @@ Summary: ${summary}`;
         `[Document ${i + 1}: ${d.title} (${d.document_type})]\nSummary: ${d.ai_summary}\nKey Points: ${JSON.stringify(d.ai_key_points)}`
       ).join('\n\n---\n\n');
 
-      const system = `You are NEXUS HR AI — an expert HR assistant for a GCC company. 
+      const system = `You are Naibus AI — an expert HR assistant for a GCC company. 
 You answer questions ONLY based on the company's uploaded documents.
 Always cite which document your answer comes from.
 If the answer is not in the documents, say so clearly.

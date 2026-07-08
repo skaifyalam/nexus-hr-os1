@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       { key: 'exit', label: 'Exit Management' },
     ];
 
-    const systemPrompt = `You are the NEXUS HR Setup Assistant. Help new companies configure their HR platform.
+    const systemPrompt = `You are the Naibus Setup Assistant. Help new companies configure their HR platform.
 
 Your job:
 1. Greet warmly and ask 1-2 questions about their business at a time
@@ -44,7 +44,7 @@ Rules:
     // Ensure we have at least one message
     if (validMessages.length === 0) {
       return NextResponse.json({ 
-        text: "Welcome to NEXUS HR! I'm here to help set up your platform. Could you tell me a bit about your company — what industry are you in, and roughly how many employees do you have?",
+        text: "Welcome to Naibus! I'm here to help set up your platform. Could you tell me a bit about your company — what industry are you in, and roughly how many employees do you have?",
         action: null 
       });
     }
@@ -64,7 +64,7 @@ Rules:
     // Must end with user message
     if (contents.length === 0 || contents[contents.length - 1].role !== 'user') {
       return NextResponse.json({
-        text: "Welcome to NEXUS HR! I'm here to help set up your platform. Could you tell me a bit about your company — what industry are you in, and roughly how many employees do you have?",
+        text: "Welcome to Naibus! I'm here to help set up your platform. Could you tell me a bit about your company — what industry are you in, and roughly how many employees do you have?",
         action: null
       });
     }

@@ -80,7 +80,7 @@ const GUIDES: { match: (p: string) => boolean; title: string; tips: string[] }[]
 ];
 
 const DEFAULT_GUIDE = {
-  title: 'NEXUS HR',
+  title: 'Naibus',
   tips: [
     'Every section is built from YOUR Excel — upload and AI creates the structure.',
     'Use the sidebar to move between your data, reports, and settings.',

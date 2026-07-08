@@ -52,7 +52,7 @@ export default function LoginPage() {
         <h1 className="text-xl font-bold text-slate-900 mb-1">
           {mode === 'login' ? 'Welcome back' : 'Create your account'}
         </h1>
-        <p className="text-sm text-slate-500 mb-6">NEXUS HR — Enterprise Workforce Platform</p>
+        <p className="text-sm text-slate-500 mb-6">Naibus — Intelligence Behind Every Business</p>
 
         {error && <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl mb-4">{error}</div>}
         {info && <div className="bg-emerald-50 text-emerald-700 text-xs p-3 rounded-xl mb-4">{info}</div>}
