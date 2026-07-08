@@ -1,17 +1,19 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2, FileCheck } from 'lucide-react';
+import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2, FileCheck, GitBranch, Sparkles } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
 import { createClient } from '@/lib/supabase/client';
 
 const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], companyId }: {
-  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; companyId: string;
+export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], statusFieldKey = '', candidateStages = [], initialStageMap = {}, companyId }: {
+  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; statusFieldKey?: string; candidateStages?: string[]; initialStageMap?: any; companyId: string;
 }) {
   const [blocks, setBlocks] = useState(initialBlocks);
   const [tab, setTab] = useState<'blocks' | 'ewakala'>('blocks');
+  const [stageMap, setStageMap] = useState<any>(initialStageMap || {});
+  const [mapOpen, setMapOpen] = useState(false);
   const [allocations, setAllocations] = useState(initialAllocations);
   const [addOpen, setAddOpen] = useState(false);
   const [allocBlock, setAllocBlock] = useState<any>(null);
@@ -42,6 +44,35 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
     if (next === 'stamped') { upd.stamped_date = today; upd.status = 'used'; }
     await supabase.from('visa_allocations').update(upd).eq('id', a.id);
     setAllocations(p => p.map(x => x.id === a.id ? { ...x, ...upd } : x));
+    // Sync the candidate's pipeline status if this visa stage is mapped
+    await syncCandidateStatus(a.person_record_id, next);
+  };
+
+  // Write the mapped pipeline stage onto the candidate's record (both-way sync, visa→pipeline)
+  const syncCandidateStatus = async (personRecordId: string, visaStage: string) => {
+    if (!personRecordId || !statusFieldKey) return;
+    const mappedStage = stageMap[visaStage];
+    if (!mappedStage) return; // no mapping for this stage → don't touch pipeline
+    const person = people.find(p => p.id === personRecordId);
+    if (!person) return;
+    const newData = { ...(person.data || {}), [statusFieldKey]: mappedStage };
+    await supabase.from('section_records').update({ data: newData }).eq('id', personRecordId);
+  };
+
+  // Save the mapping
+  const saveStageMap = async (map: any) => {
+    setStageMap(map);
+    await supabase.from('company_profile').update({ visa_stage_map: map, candidate_status_field_key: statusFieldKey || null }).eq('id', companyId);
+  };
+
+  // AI-style suggestion: match candidate stages to visa stages by keyword (company confirms)
+  const suggestMap = () => {
+    const suggest: any = { ...stageMap };
+    const findStage = (kws: string[]) => candidateStages.find(s => kws.some(k => s.toLowerCase().includes(k)));
+    if (!suggest.ewakala_issued) { const m = findStage(['ewakala', 'wakala', 'authoriz']); if (m) suggest.ewakala_issued = m; }
+    if (!suggest.passport_submitted) { const m = findStage(['stamp', 'passport', 'submit']); if (m) suggest.passport_submitted = m; }
+    if (!suggest.stamped) { const m = findStage(['stamped', 'visa done', 'visa ready', 'completed', 'visa issued']); if (m) suggest.stamped = m; }
+    saveStageMap(suggest);
   };
 
   const setStage = async (a: any, stage: string) => {
@@ -80,6 +111,8 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
     const ids = pending.map((a: any) => a.id);
     await supabase.from('visa_allocations').update({ stage: 'ewakala_issued', ewakala_issued_date: today }).in('id', ids);
     setAllocations(p => p.map(x => ids.includes(x.id) ? { ...x, stage: 'ewakala_issued', ewakala_issued_date: today } : x));
+    // Sync each candidate's pipeline status if mapped
+    for (const a of pending) await syncCandidateStatus(a.person_record_id, 'ewakala_issued');
   };
 
   const nameField = useMemo(() => candFields.find(f => /name/i.test(f.field_label))?.field_key, [candFields]);
@@ -240,6 +273,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
           <input type="file" accept=".xlsx,.xls,.csv" className="hidden" id="visa-import" onChange={e => e.target.files?.[0] && importFile(e.target.files[0])} />
           <button onClick={() => document.getElementById('visa-import')?.click()} disabled={importing} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 disabled:opacity-50">{importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />}Import</button>
           <button onClick={exportFile} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><Download size={14} />Export</button>
+          <button onClick={() => setMapOpen(true)} className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50"><GitBranch size={14} />Stage Sync</button>
           <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />Add Visa</button>
         </div>
       </div>
@@ -489,6 +523,53 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
               <button onClick={() => setSwapAlloc(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={doSwap} disabled={!swapPerson} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">Confirm Swap</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Stage sync mapping modal */}
+      {mapOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setMapOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Visa ↔ Pipeline Sync</h2>
+                <p className="text-xs text-slate-400">Map your candidate stages to visa stages</p>
+              </div>
+              <button onClick={() => setMapOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {!statusFieldKey ? (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 text-xs text-amber-700">
+                  No candidate status field detected yet. Upload candidates with a Status/Stage column first, and it'll appear here automatically.
+                </div>
+              ) : candidateStages.length === 0 ? (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 text-xs text-amber-700">
+                  No candidate stages found yet. Once candidates have status values, they'll show here to map.
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">When a visa reaches a stage below, the candidate's pipeline status updates to your mapped stage.</p>
+                    <button onClick={suggestMap} className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:gap-2 transition-all"><Sparkles size={12} />AI Suggest</button>
+                  </div>
+                  {[['ewakala_issued', 'Ewakala Issued'], ['passport_submitted', 'Passport Submitted'], ['stamped', 'Stamped']].map(([key, label]) => (
+                    <div key={key} className="flex items-center gap-3">
+                      <span className="text-sm font-medium text-slate-700 w-40 flex-shrink-0">{label}</span>
+                      <span className="text-slate-300">→</span>
+                      <select value={stageMap[key] || ''} onChange={e => saveStageMap({ ...stageMap, [key]: e.target.value })} className="flex-1 border border-slate-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">— No sync —</option>
+                        {candidateStages.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                  <p className="text-xs text-slate-400">Leave a row as "No sync" and that stage won't change the pipeline. Changes save automatically.</p>
+                </>
+              )}
+            </div>
+            <div className="flex justify-end px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
+              <button onClick={() => setMapOpen(false)} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">Done</button>
             </div>
           </div>
         </div>
