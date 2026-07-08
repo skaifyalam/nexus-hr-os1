@@ -31,9 +31,12 @@ export default function OnboardingPage() {
   const [customSections, setCustomSections] = useState<{ name: string }[]>([]);
   const [newSection, setNewSection] = useState('');
   const [finishError, setFinishError] = useState('');
+  const [canExit, setCanExit] = useState(false);
+  const [exiting, setExiting] = useState(false);
 
   // If the user already has a company (e.g. just created via "New Company"),
-  // pre-fill its name so they don't type it twice.
+  // pre-fill its name so they don't type it twice. Also detect whether they have
+  // ANOTHER completed company to fall back to (escape hatch).
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -50,9 +53,41 @@ export default function OnboardingPage() {
           }));
         }
       }
+      // Does the user belong to any OTHER company that's already onboarded?
+      const { data: memberships } = await supabase.from('company_memberships')
+        .select('company_id').eq('user_id', user.id);
+      if (memberships && memberships.length > 0) {
+        const ids = memberships.map((m: any) => m.company_id).filter((id: string) => id !== profile?.company_id);
+        if (ids.length > 0) {
+          const { data: done } = await supabase.from('company_profile')
+            .select('id').in('id', ids).eq('onboarding_complete', true).limit(1);
+          if (done && done.length > 0) setCanExit(true);
+        }
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Escape hatch: abandon this new company and switch back to a completed one
+  const exitToApp = async () => {
+    setExiting(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push('/login'); return; }
+    const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single();
+    const { data: memberships } = await supabase.from('company_memberships')
+      .select('company_id').eq('user_id', user.id);
+    const ids = (memberships || []).map((m: any) => m.company_id).filter((id: string) => id !== profile?.company_id);
+    if (ids.length > 0) {
+      const { data: done } = await supabase.from('company_profile')
+        .select('id').in('id', ids).eq('onboarding_complete', true).limit(1);
+      if (done && done.length > 0) {
+        await supabase.rpc('switch_company', { target_company_id: done[0].id });
+        window.location.href = '/dashboard';
+        return;
+      }
+    }
+    setExiting(false);
+  };
 
   const toggleCountry = (c: string) => setSelectedCountries(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c]);
   const toggleModule = (k: string) => setSelectedModules(p => p.includes(k) ? p.filter(x => x !== k) : [...p, k]);
@@ -147,14 +182,21 @@ export default function OnboardingPage() {
 
         {/* Header */}
         <div className="px-8 pt-8 pb-6 border-b border-slate-100">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center">
-              <span className="text-white text-sm font-bold">N</span>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center">
+                <span className="text-white text-sm font-bold">N</span>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-900">Naibus</p>
+                <p className="text-xs text-slate-400">Setup Wizard</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-bold text-slate-900">Naibus</p>
-              <p className="text-xs text-slate-400">Setup Wizard</p>
-            </div>
+            {canExit && (
+              <button onClick={exitToApp} disabled={exiting} className="text-xs font-medium text-slate-400 hover:text-slate-600 disabled:opacity-50">
+                {exiting ? 'Switching…' : 'Cancel & back to app'}
+              </button>
+            )}
           </div>
 
           {/* Progress bar */}
