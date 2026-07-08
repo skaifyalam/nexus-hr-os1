@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2 } from 'lucide-react';
+import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2, FileCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
 import { createClient } from '@/lib/supabase/client';
@@ -11,6 +11,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
   initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; companyId: string;
 }) {
   const [blocks, setBlocks] = useState(initialBlocks);
+  const [tab, setTab] = useState<'blocks' | 'ewakala'>('blocks');
   const [allocations, setAllocations] = useState(initialAllocations);
   const [addOpen, setAddOpen] = useState(false);
   const [allocBlock, setAllocBlock] = useState<any>(null);
@@ -49,6 +50,36 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
     if (stage === 'cancelled') upd.status = 'cancelled';
     await supabase.from('visa_allocations').update(upd).eq('id', a.id);
     setAllocations(p => p.map(x => x.id === a.id ? { ...x, ...upd } : x));
+  };
+
+  // ─── Ewakala: group allocations by agency + block for batch issuing ───
+  const ewakalaGroups = useMemo(() => {
+    // Only allocations that still need ewakala action (pending) or have it issued (to show progress)
+    const relevant = allocations.filter(a => ['ewakala_pending', 'ewakala_issued', 'passport_submitted', 'stamped'].includes(a.stage) && a.stage !== 'cancelled');
+    const map = new Map<string, any>();
+    for (const a of relevant) {
+      const block = blocks.find(b => b.id === a.visa_block_id);
+      const key = `${a.agency_id || 'none'}::${a.visa_block_id}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key, agencyName: a.agency_name || 'No agency', agencyId: a.agency_id,
+          blockNumber: block?.authority_number || '—', blockId: a.visa_block_id,
+          visaType: a.visa_type || block?.visa_type || '', items: [],
+        });
+      }
+      map.get(key).items.push(a);
+    }
+    return Array.from(map.values()).sort((x, y) => x.agencyName.localeCompare(y.agencyName));
+  }, [allocations, blocks]);
+
+  const issueEwakalaBatch = async (group: any) => {
+    const pending = group.items.filter((a: any) => a.stage === 'ewakala_pending');
+    if (pending.length === 0) return;
+    if (!confirm(`Issue Ewakala for ${pending.length} candidate(s) to ${group.agencyName} on block ${group.blockNumber}?`)) return;
+    const today = new Date().toISOString().split('T')[0];
+    const ids = pending.map((a: any) => a.id);
+    await supabase.from('visa_allocations').update({ stage: 'ewakala_issued', ewakala_issued_date: today }).in('id', ids);
+    setAllocations(p => p.map(x => ids.includes(x.id) ? { ...x, stage: 'ewakala_issued', ewakala_issued_date: today } : x));
   };
 
   const nameField = useMemo(() => candFields.find(f => /name/i.test(f.field_label))?.field_key, [candFields]);
@@ -215,6 +246,13 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
 
       {importMsg && <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm text-indigo-700 flex items-center gap-2">{importing && <Loader size={14} className="animate-spin" />}{importMsg}</div>}
 
+      {/* Tabs */}
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setTab('blocks')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'blocks' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><CreditCard size={14} />Visa Blocks</button>
+        <button onClick={() => setTab('ewakala')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'ewakala' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><FileCheck size={14} />Ewakala</button>
+      </div>
+
+      {tab === 'blocks' && (<>
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-5">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
@@ -298,6 +336,57 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
             );
           })}
         </div>
+      )}
+      </>)}
+
+      {/* Ewakala tab */}
+      {tab === 'ewakala' && (
+        ewakalaGroups.length === 0 ? (
+          <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-14 text-center">
+            <FileCheck size={36} className="text-slate-200 mx-auto mb-4" />
+            <p className="text-sm font-medium text-slate-600 mb-1">No Ewakala to process</p>
+            <p className="text-xs text-slate-400">Allocate candidates to a block and agency first — they'll appear here grouped by agency for Ewakala issuing.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {ewakalaGroups.map(g => {
+              const pending = g.items.filter((a: any) => a.stage === 'ewakala_pending').length;
+              const issued = g.items.filter((a: any) => ['ewakala_issued', 'passport_submitted', 'stamped'].includes(a.stage)).length;
+              return (
+                <div key={g.key} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{g.agencyName}</p>
+                      <p className="text-xs text-slate-400">Block {g.blockNumber}{g.visaType ? ` · ${g.visaType}` : ''} · {g.items.length} candidate(s)</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-xs text-amber-600">{pending} pending</p>
+                        <p className="text-xs text-emerald-600">{issued} issued</p>
+                      </div>
+                      {pending > 0 && (
+                        <button onClick={() => issueEwakalaBatch(g)} className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><FileCheck size={13} />Issue Ewakala ({pending})</button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    {g.items.map((a: any) => (
+                      <div key={a.id} className="flex items-center gap-2 text-xs px-2.5 py-1.5 bg-slate-50 rounded-lg">
+                        <span className="font-medium text-slate-700">{a.person_name}</span>
+                        {a.passport_number && <span className="text-slate-400 font-mono">{a.passport_number}</span>}
+                        <span className={`ml-auto px-1.5 py-0.5 rounded ${STAGE_COLOR[a.stage]}`}>{STAGE_LABEL[a.stage]}</span>
+                        {a.ewakala_issued_date && <span className="text-slate-400">{new Date(a.ewakala_issued_date).toLocaleDateString('en-GB')}</span>}
+                        {a.stage !== 'ewakala_pending' && a.stage !== 'stamped' && (
+                          <button onClick={() => advanceStage(a)} className="text-indigo-600 hover:text-indigo-700 font-medium">→ {STAGE_LABEL[STAGES[STAGES.indexOf(a.stage) + 1]]}</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {/* Add visa modal */}
