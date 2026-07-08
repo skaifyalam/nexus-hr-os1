@@ -126,7 +126,7 @@ export default function OnboardingPage() {
         {/* Header */}
         <div className="px-8 pt-8 pb-6 border-b border-slate-100">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center">
               <span className="text-white text-sm font-bold">N</span>
             </div>
             <div>
@@ -288,7 +288,7 @@ export default function OnboardingPage() {
           {/* Step 4: Done */}
           {step === 4 && (
             <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center">
                 <Check size={28} className="text-white" />
               </div>
               <div>

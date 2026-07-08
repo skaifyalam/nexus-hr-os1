@@ -51,7 +51,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 w-full max-w-sm">
-        <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center mb-5">
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5" style={{ background: 'linear-gradient(135deg,#2563EB,#06B6D4)' }}>
           <span className="text-white text-sm font-bold">N</span>
         </div>
         <h1 className="text-xl font-bold text-slate-900 mb-1">
@@ -88,7 +88,8 @@ export default function LoginPage() {
           <button
             onClick={submit}
             disabled={loading}
-            className="w-full bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg,#2563EB,#06B6D4)' }}
+            className="w-full text-white rounded-xl py-2.5 text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {loading ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
           </button>
