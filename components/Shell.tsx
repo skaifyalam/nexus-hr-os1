@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -87,15 +87,42 @@ export default function Shell({
     else setSwitching(false);
   };
 
+  const [createErr, setCreateErr] = useState('');
   const createCompany = async () => {
     if (!newCoName.trim()) return;
-    setSwitching(true);
-    const { data } = await supabase.rpc('create_additional_company', { p_name: newCoName.trim() });
-    if (data) window.location.href = '/onboarding';
-    else setSwitching(false);
+    setSwitching(true); setCreateErr('');
+    const { data, error } = await supabase.rpc('create_additional_company', { p_name: newCoName.trim() });
+    if (error) {
+      setCreateErr(error.message || 'Could not create company. Make sure the multi-company SQL has been run.');
+      setSwitching(false);
+      return;
+    }
+    if (data) {
+      // data is the new company_id; switch to it then go to onboarding
+      await supabase.rpc('switch_company', { target_company_id: data });
+      window.location.href = '/onboarding';
+    } else {
+      setCreateErr('Company was not created. Please try again.');
+      setSwitching(false);
+    }
   };
 
   const signOut = async () => { await supabase.auth.signOut(); router.push('/login'); };
+
+  // Preserve main-content scroll position across refresh (per page)
+  const mainRef = useRef<HTMLElement>(null);
+  const handleMainScroll = () => {
+    if (typeof window !== 'undefined' && mainRef.current) {
+      try { sessionStorage.setItem(`scroll:${window.location.pathname}`, String(mainRef.current.scrollTop)); } catch {}
+    }
+  };
+  useEffect(() => {
+    if (typeof window !== 'undefined' && mainRef.current) {
+      const saved = sessionStorage.getItem(`scroll:${window.location.pathname}`);
+      if (saved) { requestAnimationFrame(() => { if (mainRef.current) mainRef.current.scrollTop = Number(saved); }); }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [dragSec, setDragSec] = useState<string | null>(null);
   const [dragOverSec, setDragOverSec] = useState<string | null>(null);
@@ -121,15 +148,23 @@ export default function Shell({
         return { ...f, label: custom?.label || f.label };
       });
 
-      // Apply this user's saved order
+      // Apply this user's saved order — but keep any features NOT in the saved list
+      // in their natural default position (prevents jumping on refresh when new
+      // features were added after the user last saved their order).
       const savedOrder: string[] = orderRow?.ordered_keys || [];
       if (savedOrder.length > 0) {
+        const defaultIndex = (k: string) => DEFAULT_FEATURES.findIndex(f => f.key === k);
         list = [...list].sort((a, b) => {
           const ia = savedOrder.indexOf(a.key), ib = savedOrder.indexOf(b.key);
-          if (ia === -1 && ib === -1) return 0;
-          if (ia === -1) return 1;
-          if (ib === -1) return -1;
-          return ia - ib;
+          // both saved → saved order
+          if (ia !== -1 && ib !== -1) return ia - ib;
+          // both unsaved → default order
+          if (ia === -1 && ib === -1) return defaultIndex(a.key) - defaultIndex(b.key);
+          // one saved, one not → keep them near their default slots by comparing
+          // the unsaved item's default index against the saved item's default index
+          const aRank = ia !== -1 ? ia : defaultIndex(a.key);
+          const bRank = ib !== -1 ? ib : defaultIndex(b.key);
+          return aRank - bRank;
         });
       }
       setFeatures(list);
@@ -516,7 +551,7 @@ export default function Shell({
           </button>
         </div>
       </div>
-      <main className="flex-1 overflow-y-auto">
+      <main ref={mainRef} className="flex-1 overflow-y-auto" onScroll={handleMainScroll}>
         <div className="p-7 max-w-6xl">{children}</div>
       </main>
       <Assistant />
@@ -530,6 +565,7 @@ export default function Shell({
             <p className="text-xs text-slate-500 mb-4">Creates a separate workspace with its own data, sections, and settings. Switch between companies anytime from the sidebar.</p>
             <input value={newCoName} onChange={e => setNewCoName(e.target.value)} placeholder="Company name" autoFocus
               className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            {createErr && <p className="text-xs text-red-500 mb-3">{createErr}</p>}
             <div className="flex justify-end gap-3">
               <button onClick={() => setNewCoOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={createCompany} disabled={switching || !newCoName.trim()} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">

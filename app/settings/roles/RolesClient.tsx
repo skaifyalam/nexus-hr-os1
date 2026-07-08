@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, X, Shield, Mail, Loader, Check, Users, Key, Trash2, Edit2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -9,6 +9,13 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
   const [roles, setRoles] = useState(initialRoles);
   const [profiles, setProfiles] = useState(initialProfiles);
   const [tab, setTab] = useState<'users' | 'roles'>('users');
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#roles') setTab('roles');
+  }, []);
+  const switchTab = (t: 'users' | 'roles') => {
+    setTab(t);
+    if (typeof window !== 'undefined') window.location.hash = t === 'roles' ? 'roles' : '';
+  };
   const [projField, setProjField] = useState(projectField);
   const supabase = createClient();
 
@@ -111,9 +118,13 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
       });
       const json = await res.json();
       if (!res.ok) { setInviteMsg(json.error || 'Invite failed.'); setInviting(false); return; }
-      setInviteMsg(`✓ Invitation sent to ${iEmail}. They'll get an email to set their password.`);
+      if (json.tempPassword) {
+        setInviteMsg(`✓ Account created for ${iEmail}. Email isn't set up, so share this temporary password: ${json.tempPassword}`);
+      } else {
+        setInviteMsg(`✓ Invitation sent to ${iEmail}. They'll get an email to set their password.`);
+      }
       setIEmail(''); setIRoleId('');
-      setTimeout(() => { setInviteOpen(false); setInviteMsg(''); }, 2500);
+      if (!json.tempPassword) setTimeout(() => { setInviteOpen(false); setInviteMsg(''); }, 2500);
     } catch (e: any) { setInviteMsg(e.message); }
     setInviting(false);
   };
@@ -156,8 +167,8 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
       </div>
 
       <div className="flex gap-2 mb-5">
-        <button onClick={() => setTab('users')} className={`px-4 py-2 rounded-xl text-sm font-medium ${tab === 'users' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Users</button>
-        <button onClick={() => setTab('roles')} className={`px-4 py-2 rounded-xl text-sm font-medium ${tab === 'roles' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Roles</button>
+        <button onClick={() => switchTab('users')} className={`px-4 py-2 rounded-xl text-sm font-medium ${tab === 'users' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Users</button>
+        <button onClick={() => switchTab('roles')} className={`px-4 py-2 rounded-xl text-sm font-medium ${tab === 'roles' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>Roles</button>
       </div>
 
       {tab === 'users' && (
