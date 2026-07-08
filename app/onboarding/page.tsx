@@ -192,11 +192,9 @@ export default function OnboardingPage() {
                 <p className="text-xs text-slate-400">Setup Wizard</p>
               </div>
             </div>
-            {canExit && (
-              <button onClick={exitToApp} disabled={exiting} className="text-xs font-medium text-slate-400 hover:text-slate-600 disabled:opacity-50">
-                {exiting ? 'Switching…' : 'Cancel & back to app'}
-              </button>
-            )}
+            <button onClick={() => { window.location.href = '/dashboard'; }} className="text-xs font-medium text-slate-400 hover:text-slate-600">
+              Back to app
+            </button>
           </div>
 
           {/* Progress bar */}

@@ -23,7 +23,10 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 
-  // Logged in — check if onboarding needed
+  // Logged in — check if onboarding needed.
+  // Only FORCE onboarding for genuinely new users who have NO company at all.
+  // If the user has a company but it's mid-setup, we do NOT trap them — they can
+  // still reach the dashboard and other companies (escape is always possible).
   if (session && !isOnboarding) {
     const { data: profile } = await supabase
       .from('profiles')
@@ -31,19 +34,15 @@ export async function middleware(req: NextRequest) {
       .eq('id', session.user.id)
       .single();
 
-    if (profile) {
-      let needsOnboarding = false;
-      if (profile.company_id) {
-        const { data: company } = await supabase
-          .from('company_profile')
-          .select('onboarding_complete')
-          .eq('id', profile.company_id)
-          .single();
-        needsOnboarding = !company?.onboarding_complete;
-      } else {
-        needsOnboarding = true;
-      }
-      if (needsOnboarding) {
+    // Only redirect to onboarding if the user has NO company assigned at all.
+    if (profile && !profile.company_id) {
+      // Does the user belong to any company via memberships they could switch into?
+      const { data: memberships } = await supabase
+        .from('company_memberships')
+        .select('company_id')
+        .eq('user_id', session.user.id)
+        .limit(1);
+      if (!memberships || memberships.length === 0) {
         return NextResponse.redirect(new URL('/onboarding', req.url));
       }
     }
