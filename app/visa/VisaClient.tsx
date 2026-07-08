@@ -7,8 +7,8 @@ import { createClient } from '@/lib/supabase/client';
 
 const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, companyId }: {
-  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; companyId: string;
+export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], companyId }: {
+  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; companyId: string;
 }) {
   const [blocks, setBlocks] = useState(initialBlocks);
   const [allocations, setAllocations] = useState(initialAllocations);
@@ -18,6 +18,39 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
   const [importMsg, setImportMsg] = useState('');
   const supabase = createClient();
 
+  // Visa workflow stages, in order
+  const STAGES = ['allocated', 'ewakala_pending', 'ewakala_issued', 'passport_submitted', 'stamped'];
+  const STAGE_LABEL: any = {
+    allocated: 'Allocated', ewakala_pending: 'Ewakala Pending', ewakala_issued: 'Ewakala Issued',
+    passport_submitted: 'Passport Submitted', stamped: 'Stamped ✓', missed: 'Missed', cancelled: 'Cancelled',
+  };
+  const STAGE_COLOR: any = {
+    allocated: 'bg-slate-100 text-slate-600', ewakala_pending: 'bg-amber-50 text-amber-700',
+    ewakala_issued: 'bg-sky-50 text-sky-700', passport_submitted: 'bg-violet-50 text-violet-700',
+    stamped: 'bg-emerald-50 text-emerald-700', missed: 'bg-red-50 text-red-500', cancelled: 'bg-slate-100 text-slate-400',
+  };
+
+  const advanceStage = async (a: any) => {
+    const idx = STAGES.indexOf(a.stage || 'allocated');
+    if (idx < 0 || idx >= STAGES.length - 1) return;
+    const next = STAGES[idx + 1];
+    const upd: any = { stage: next };
+    const today = new Date().toISOString().split('T')[0];
+    if (next === 'ewakala_issued') upd.ewakala_issued_date = today;
+    if (next === 'passport_submitted') upd.passport_submitted_date = today;
+    if (next === 'stamped') { upd.stamped_date = today; upd.status = 'used'; }
+    await supabase.from('visa_allocations').update(upd).eq('id', a.id);
+    setAllocations(p => p.map(x => x.id === a.id ? { ...x, ...upd } : x));
+  };
+
+  const setStage = async (a: any, stage: string) => {
+    const upd: any = { stage };
+    if (stage === 'stamped') { upd.stamped_date = new Date().toISOString().split('T')[0]; upd.status = 'used'; }
+    if (stage === 'cancelled') upd.status = 'cancelled';
+    await supabase.from('visa_allocations').update(upd).eq('id', a.id);
+    setAllocations(p => p.map(x => x.id === a.id ? { ...x, ...upd } : x));
+  };
+
   const nameField = useMemo(() => candFields.find(f => /name/i.test(f.field_label))?.field_key, [candFields]);
   const passField = useMemo(() => candFields.find(f => /passport/i.test(f.field_label))?.field_key, [candFields]);
   const idField = useMemo(() => candFields.find(f => f.is_id_field)?.field_key, [candFields]);
@@ -25,8 +58,12 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
   const pCode = (p: any) => (idField && p.data?.[idField]) || p.record_id || '';
   const pPass = (p: any) => (passField && p.data?.[passField]) || '';
 
-  const activeAllocs = (blockId: string) => allocations.filter(a => a.visa_block_id === blockId && a.status !== 'cancelled');
-  const balanceOf = (b: any) => (b.total_quantity || 0) - activeAllocs(b.id).length;
+  const activeAllocs = (blockId: string) => allocations.filter(a => a.visa_block_id === blockId && a.stage !== 'cancelled' && a.stage !== 'missed');
+  const stampedCount = (blockId: string) => allocations.filter(a => a.visa_block_id === blockId && a.stage === 'stamped').length;
+  // True remaining = quantity - stamped (over-allocation is deliberate; only stamping consumes a visa)
+  const balanceOf = (b: any) => (b.total_quantity || 0) - stampedCount(b.id);
+  // Over-allocation indicator: how many candidates are chasing this block
+  const chasingCount = (blockId: string) => activeAllocs(blockId).filter(a => a.stage !== 'stamped').length;
 
   const totals = useMemo(() => {
     const total = blocks.reduce((s, b) => s + (b.total_quantity || 0), 0);
@@ -58,17 +95,22 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
 
   // ─── Allocate a person ───
   const [allocPerson, setAllocPerson] = useState('');
+  const [allocAgency, setAllocAgency] = useState('');
+  const [allocType, setAllocType] = useState('');
   const allocate = async () => {
     if (!allocPerson || !allocBlock) return;
     const person = people.find(p => p.id === allocPerson);
+    const agency = agencies.find(a => a.id === allocAgency);
     const { data } = await supabase.from('visa_allocations').insert({
       company_id: companyId, visa_block_id: allocBlock.id,
       person_record_id: allocPerson, person_name: person ? pName(person) : '',
       person_code: person ? pCode(person) : '', passport_number: person ? pPass(person) : '',
-      status: 'allocated',
+      agency_id: allocAgency || null, agency_name: agency?.name || '',
+      visa_type: allocType || allocBlock.visa_type || '',
+      stage: 'ewakala_pending', status: 'allocated',
     }).select().single();
     if (data) setAllocations(p => [...p, data]);
-    setAllocPerson('');
+    setAllocPerson(''); setAllocAgency(''); setAllocType('');
   };
 
   const removeAlloc = async (id: string) => {
@@ -217,7 +259,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                   <div className="flex items-center gap-2">
                     <div className="text-right">
                       <p className={`text-lg font-bold ${bal <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{bal}<span className="text-xs text-slate-400 font-normal"> / {b.total_quantity}</span></p>
-                      <p className="text-xs text-slate-400">available</p>
+                      <p className="text-xs text-slate-400">visas left · {chasingCount(b.id)} in process</p>
                     </div>
                     <button onClick={() => deleteBlock(b.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
                   </div>
@@ -226,27 +268,31 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                 {/* Allocated people */}
                 {allocs.length > 0 && (
                   <div className="space-y-1.5 mb-3">
-                    {allocs.map(a => (
-                      <div key={a.id} className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg ${a.status === 'used' ? 'bg-emerald-50' : 'bg-slate-50'}`}>
-                        <span className="font-medium text-slate-700">{a.person_name}{a.person_code ? ` (${a.person_code})` : ''}</span>
-                        {a.passport_number && <span className="text-slate-400 font-mono">{a.passport_number}</span>}
-                        {a.note && a.note.startsWith('Swapped') && <span className="text-amber-600 italic">↻ {a.note}</span>}
-                        <div className="ml-auto flex items-center gap-1.5">
-                          <select value={a.status} onChange={e => setAllocStatus(a.id, e.target.value)} className="bg-transparent text-xs focus:outline-none cursor-pointer text-slate-500">
-                            <option value="allocated">allocated</option>
-                            <option value="used">used</option>
-                          </select>
-                          <button onClick={() => { setSwapAlloc(a); setSwapPerson(''); }} title="Swap to another person" className="text-slate-400 hover:text-indigo-600 font-medium">Swap</button>
-                          <button onClick={() => removeAlloc(a.id)} title="Remove" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                    {allocs.map(a => {
+                      const stage = a.stage || 'allocated';
+                      const canAdvance = STAGES.indexOf(stage) >= 0 && STAGES.indexOf(stage) < STAGES.length - 1;
+                      const nextLabel = canAdvance ? STAGE_LABEL[STAGES[STAGES.indexOf(stage) + 1]] : '';
+                      return (
+                        <div key={a.id} className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg ${stage === 'stamped' ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                          <span className="font-medium text-slate-700">{a.person_name}{a.person_code ? ` (${a.person_code})` : ''}</span>
+                          {a.agency_name && <span className="text-slate-400">· {a.agency_name}</span>}
+                          {a.passport_number && <span className="text-slate-400 font-mono">{a.passport_number}</span>}
+                          {a.note && a.note.startsWith('Swapped') && <span className="text-amber-600 italic">↻</span>}
+                          <span className={`px-1.5 py-0.5 rounded ${STAGE_COLOR[stage]}`}>{STAGE_LABEL[stage]}</span>
+                          <div className="ml-auto flex items-center gap-1.5">
+                            {canAdvance && <button onClick={() => advanceStage(a)} title={`Advance to ${nextLabel}`} className="text-indigo-600 hover:text-indigo-700 font-medium">→ {nextLabel}</button>}
+                            <button onClick={() => { setSwapAlloc(a); setSwapPerson(''); }} title="Swap to another person" className="text-slate-400 hover:text-indigo-600 font-medium">Swap</button>
+                            <button onClick={() => removeAlloc(a.id)} title="Remove" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
-                <button onClick={() => { setAllocBlock(b); setAllocPerson(''); }} disabled={bal <= 0}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-                  <UserPlus size={13} />{bal <= 0 ? 'No balance left' : 'Allocate person'}
+                <button onClick={() => { setAllocBlock(b); setAllocPerson(''); }}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:gap-2 transition-all">
+                  <UserPlus size={13} />{bal <= 0 ? 'Allocate (over-subscribed)' : 'Allocate candidate'}
                 </button>
               </div>
             );
@@ -303,8 +349,24 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Person (candidate or employee)</label>
+                <label className="text-sm font-medium text-slate-700">Candidate</label>
                 <PersonPicker people={people} fields={candFields} value={allocPerson} onChange={setAllocPerson} placeholder="Search by name, ID or passport…" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Agency</label>
+                  <select value={allocAgency} onChange={e => setAllocAgency(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">— Select agency —</option>
+                    {agencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Visa Type</label>
+                  <input value={allocType} onChange={e => setAllocType(e.target.value)} placeholder={allocBlock.visa_type || 'Work Visa'} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </div>
+              <div className="bg-sky-50 border border-sky-100 rounded-xl px-3 py-2 text-xs text-sky-700">
+                Over-allocation is allowed — you can assign more candidates than visas across agencies. Only <b>stamping</b> consumes a visa; whoever completes first gets it.
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">

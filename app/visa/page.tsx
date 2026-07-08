@@ -13,10 +13,11 @@ export default async function VisaPage() {
   if (_access === 'none') redirect('/dashboard');
   const companyId = profile?.company_id || '';
 
-  const [{ data: blocks }, { data: allocations }, { data: candFields }] = await Promise.all([
+  const [{ data: blocks }, { data: allocations }, { data: candFields }, { data: agencies }] = await Promise.all([
     supabase.from('visa_blocks').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
     supabase.from('visa_allocations').select('*').eq('company_id', companyId),
     supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'candidate').order('display_order'),
+    supabase.from('agencies').select('id, name').eq('company_id', companyId).order('name'),
   ]);
 
   // Load candidates + employees for allocation picker (trimmed — fast on large datasets)
@@ -28,7 +29,7 @@ export default async function VisaPage() {
 
   return (
     <Shell current="/visa" profile={profile} sections={sections} companyId={companyId}>
-      <VisaClient initialBlocks={blocks || []} initialAllocations={allocations || []} people={people} candFields={candFields || []} companyId={companyId} />
+      <VisaClient initialBlocks={blocks || []} initialAllocations={allocations || []} people={people} candFields={candFields || []} agencies={agencies || []} companyId={companyId} />
     </Shell>
   );
 }
