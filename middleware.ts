@@ -10,9 +10,11 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
   const isAuthPage = path.startsWith('/login');
   const isOnboarding = path.startsWith('/onboarding');
+  // Public routes that do NOT require login (landing page + its chat API)
+  const isPublic = path === '/' || path.startsWith('/api/landing-chat');
 
-  // Not logged in — send to login
-  if (!session && !isAuthPage) {
+  // Not logged in — send to login (except public routes and the login page itself)
+  if (!session && !isAuthPage && !isPublic) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
