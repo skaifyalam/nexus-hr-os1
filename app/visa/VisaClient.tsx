@@ -7,13 +7,15 @@ import { createClient } from '@/lib/supabase/client';
 
 const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], statusFieldKey = '', candidateStages = [], initialStageMap = {}, companyId }: {
-  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; statusFieldKey?: string; candidateStages?: string[]; initialStageMap?: any; companyId: string;
+export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], statusFieldKey = '', candidateStages = [], initialStageMap = {}, pendingVisa = [], companyId }: {
+  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; statusFieldKey?: string; candidateStages?: string[]; initialStageMap?: any; pendingVisa?: any[]; companyId: string;
 }) {
   const [blocks, setBlocks] = useState(initialBlocks);
   const [tab, setTab] = useState<'blocks' | 'ewakala'>('blocks');
   const [stageMap, setStageMap] = useState<any>(initialStageMap || {});
   const [mapOpen, setMapOpen] = useState(false);
+  const [pending, setPending] = useState<any[]>(pendingVisa);
+  const [quickAllocateBlock, setQuickAllocateBlock] = useState('');
   const [allocations, setAllocations] = useState(initialAllocations);
   const [addOpen, setAddOpen] = useState(false);
   const [allocBlock, setAllocBlock] = useState<any>(null);
@@ -175,6 +177,18 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
     }).select().single();
     if (data) setAllocations(p => [...p, data]);
     setAllocPerson(''); setAllocAgency(''); setAllocType('');
+    // Remove from pending list if they were there
+    setPending(p => p.filter(x => x.id !== allocPerson));
+  };
+
+  // Open the allocate modal pre-filled with a pending candidate (block chosen inside)
+  const startQuickAllocate = (candidate: any) => {
+    setAllocPerson(candidate.id);
+    setAllocAgency('');
+    setAllocType('');
+    // Default to first block with balance, else first block
+    const target = blocks.find(b => balanceOf(b) > 0) || blocks[0];
+    if (target) setAllocBlock(target);
   };
 
   const removeAlloc = async (id: string) => {
@@ -301,6 +315,32 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
         <button onClick={() => setTab('blocks')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'blocks' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><CreditCard size={14} />Visa Blocks</button>
         <button onClick={() => setTab('ewakala')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'ewakala' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><FileCheck size={14} />Ewakala</button>
       </div>
+
+      {/* Pending for visa — auto-surfaced from the recruitment pipeline */}
+      {pending.length > 0 && tab === 'blocks' && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-500" />
+              <p className="text-sm font-semibold text-amber-800">{pending.length} candidate(s) pending for visa</p>
+            </div>
+            <p className="text-xs text-amber-600">From your recruitment pipeline — allocate them to a block</p>
+          </div>
+          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            {pending.map(c => {
+              const nm = (candFields.find((f: any) => /name/i.test(f.field_label))?.field_key && c.data?.[candFields.find((f: any) => /name/i.test(f.field_label))?.field_key]) || c.record_id;
+              return (
+                <div key={c.id} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 text-xs">
+                  <span className="font-medium text-slate-700">{nm}</span>
+                  <span className="text-slate-400">{c._status}</span>
+                  <button onClick={() => startQuickAllocate(c)} disabled={blocks.length === 0} className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-40"><UserPlus size={12} />Allocate</button>
+                </div>
+              );
+            })}
+          </div>
+          {blocks.length === 0 && <p className="text-xs text-amber-600 mt-2">Add a visa block first, then allocate these candidates.</p>}
+        </div>
+      )}
 
       {tab === 'blocks' && (<>
       {/* Summary */}
@@ -487,6 +527,12 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
               <button onClick={() => setAllocBlock(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
             </div>
             <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Visa Block</label>
+                <select value={allocBlock.id} onChange={e => { const b = blocks.find(x => x.id === e.target.value); if (b) setAllocBlock(b); }} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  {blocks.map(b => <option key={b.id} value={b.id}>{b.authority_number || b.profession || 'Visa'} — {balanceOf(b)} left / {b.total_quantity}</option>)}
+                </select>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">Candidate</label>
                 <PersonPicker people={people} fields={candFields} value={allocPerson} onChange={setAllocPerson} placeholder="Search by name, ID or passport…" />

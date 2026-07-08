@@ -51,9 +51,32 @@ export default async function VisaPage() {
   ]);
   const people = [...cands, ...emps];
 
+  // ─── Auto-surface "pending for visa" candidates ───
+  // A candidate is pending if their pipeline status matches a visa-linked stage (from the map)
+  // AND they don't already have an active visa allocation.
+  const stageMap = company?.visa_stage_map || {};
+  const visaLinkedStatuses = new Set(Object.values(stageMap).filter(Boolean).map((s: any) => String(s)));
+  const allocatedPersonIds = new Set((allocations || []).filter((a: any) => a.stage !== 'cancelled').map((a: any) => a.person_record_id));
+
+  let pendingVisa: any[] = [];
+  if (statusFieldKey && visaLinkedStatuses.size > 0) {
+    for (let from = 0; ; from += 1000) {
+      const { data } = await supabase.from('section_records').select('id, record_id, data')
+        .eq('company_id', companyId).eq('section_key', 'candidate').range(from, from + 999);
+      if (!data || data.length === 0) break;
+      for (const r of data) {
+        const status = r.data?.[statusFieldKey];
+        if (status && visaLinkedStatuses.has(String(status)) && !allocatedPersonIds.has(r.id)) {
+          pendingVisa.push({ id: r.id, record_id: r.record_id, data: r.data, _status: String(status) });
+        }
+      }
+      if (data.length < 1000) break;
+    }
+  }
+
   return (
     <Shell current="/visa" profile={profile} sections={sections} companyId={companyId}>
-      <VisaClient initialBlocks={blocks || []} initialAllocations={allocations || []} people={people} candFields={candFields || []} agencies={agencies || []} statusFieldKey={statusFieldKey} candidateStages={candidateStages} initialStageMap={company?.visa_stage_map || {}} companyId={companyId} />
+      <VisaClient initialBlocks={blocks || []} initialAllocations={allocations || []} people={people} candFields={candFields || []} agencies={agencies || []} statusFieldKey={statusFieldKey} candidateStages={candidateStages} initialStageMap={company?.visa_stage_map || {}} pendingVisa={pendingVisa} companyId={companyId} />
     </Shell>
   );
 }
