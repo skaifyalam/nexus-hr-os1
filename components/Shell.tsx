@@ -74,7 +74,7 @@ export default function Shell({
     (async () => {
       const { data } = await supabase
         .from('company_memberships')
-        .select('company_id, role, company_profile(company_name)');
+        .select('company_id, role, company_profile(name)');
       if (data) setMemberships(data);
     })();
   }, []);
@@ -330,7 +330,7 @@ export default function Shell({
                     <Link
                       href={href}
                       onDoubleClick={e => { if (isSuperAdmin) { e.preventDefault(); setRenamingSec(s.id); } }}
-                      className={`flex items-center gap-2.5 flex-1 min-w-0 pr-2 py-2 text-xs font-medium ${isActive(href) ? 'text-white' : 'text-slate-600'}`}
+                      className={`flex items-center gap-3 flex-1 min-w-0 pl-3 pr-2 py-2 text-xs font-medium ${isActive(href) ? 'text-white' : 'text-slate-600'}`}
                     >
                       <Icon size={14} className="flex-shrink-0" />
                       <span className="flex-1 truncate">{s.label}</span>
@@ -380,7 +380,7 @@ export default function Shell({
                     <Link
                       href={f.href}
                       onDoubleClick={e => { if (isSuperAdmin) { e.preventDefault(); setRenamingFeature(f.key); } }}
-                      className={`flex items-center gap-2.5 flex-1 min-w-0 pr-2 py-2 text-xs font-medium ${isActive(f.href) ? 'text-white' : 'text-slate-600'}`}
+                      className={`flex items-center gap-3 flex-1 min-w-0 pl-3 pr-2 py-2 text-xs font-medium ${isActive(f.href) ? 'text-white' : 'text-slate-600'}`}
                     >
                       <Icon size={14} className="flex-shrink-0" />
                       <span className="flex-1 truncate">{f.label}</span>
@@ -448,7 +448,7 @@ export default function Shell({
               <button onClick={() => setSwitcherOpen(!switcherOpen)} className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-slate-100">
                 <span className="flex items-center gap-2 min-w-0">
                   <Building2 size={13} className="text-indigo-500 flex-shrink-0" />
-                  <span className="truncate">{(memberships.find(m => m.company_id === companyId) as any)?.company_profile?.company_name || 'My Company'}</span>
+                  <span className="truncate">{(memberships.find(m => m.company_id === companyId) as any)?.company_profile?.name || 'My Company'}</span>
                 </span>
                 <ChevronsUpDown size={12} className="text-slate-400 flex-shrink-0" />
               </button>
@@ -458,7 +458,7 @@ export default function Shell({
                     <button key={m.company_id} onClick={() => switchCompany(m.company_id)} disabled={switching}
                       className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-slate-50 ${m.company_id === companyId ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-600'}`}>
                       <Building2 size={12} className="flex-shrink-0" />
-                      <span className="truncate">{m.company_profile?.company_name || 'Unnamed'}</span>
+                      <span className="truncate">{m.company_profile?.name || 'Unnamed'}</span>
                       {m.company_id === companyId && <Check size={12} className="ml-auto flex-shrink-0" />}
                     </button>
                   ))}
