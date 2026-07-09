@@ -90,21 +90,9 @@ export default function Shell({
   const [createErr, setCreateErr] = useState('');
   const createCompany = async () => {
     if (!newCoName.trim()) return;
-    setSwitching(true); setCreateErr('');
-    const { data, error } = await supabase.rpc('create_additional_company', { p_name: newCoName.trim() });
-    if (error) {
-      setCreateErr(error.message || 'Could not create company. Make sure the multi-company SQL has been run.');
-      setSwitching(false);
-      return;
-    }
-    if (data) {
-      // data is the new company_id; switch to it then go to onboarding
-      await supabase.rpc('switch_company', { target_company_id: data });
-      window.location.href = '/onboarding';
-    } else {
-      setCreateErr('Company was not created. Please try again.');
-      setSwitching(false);
-    }
+    // Do NOT create the company yet — carry the name into the wizard.
+    // The company is only written to the database when the user clicks Finish.
+    window.location.href = `/onboarding?new=1&name=${encodeURIComponent(newCoName.trim())}`;
   };
 
   const signOut = async () => { await supabase.auth.signOut(); router.push('/login'); };

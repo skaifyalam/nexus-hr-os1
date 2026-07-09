@@ -31,63 +31,22 @@ export default function OnboardingPage() {
   const [customSections, setCustomSections] = useState<{ name: string }[]>([]);
   const [newSection, setNewSection] = useState('');
   const [finishError, setFinishError] = useState('');
-  const [canExit, setCanExit] = useState(false);
-  const [exiting, setExiting] = useState(false);
+  const [isNewCompany, setIsNewCompany] = useState(false);
 
-  // If the user already has a company (e.g. just created via "New Company"),
-  // pre-fill its name so they don't type it twice. Also detect whether they have
-  // ANOTHER completed company to fall back to (escape hatch).
+  // Determine the flow:
+  // - "?new=1&name=X"  → user is creating an ADDITIONAL company (from the switcher).
+  //   Pre-fill the name from the URL; the company is created only on Finish.
+  // - otherwise        → first-time signup with no company yet; wizard creates on Finish.
   useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single();
-      if (profile?.company_id) {
-        const { data: company } = await supabase.from('company_profile')
-          .select('name, industry, size_range').eq('id', profile.company_id).maybeSingle();
-        if (company?.name) {
-          setInfo(prev => ({
-            name: company.name || prev.name,
-            industry: company.industry || prev.industry,
-            size: company.size_range || prev.size,
-          }));
-        }
-      }
-      // Does the user belong to any OTHER company that's already onboarded?
-      const { data: memberships } = await supabase.from('company_memberships')
-        .select('company_id').eq('user_id', user.id);
-      if (memberships && memberships.length > 0) {
-        const ids = memberships.map((m: any) => m.company_id).filter((id: string) => id !== profile?.company_id);
-        if (ids.length > 0) {
-          const { data: done } = await supabase.from('company_profile')
-            .select('id').in('id', ids).eq('onboarding_complete', true).limit(1);
-          if (done && done.length > 0) setCanExit(true);
-        }
-      }
-    })();
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('new') === '1') {
+      setIsNewCompany(true);
+      const nm = params.get('name');
+      if (nm) setInfo(prev => ({ ...prev, name: nm }));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Escape hatch: abandon this new company and switch back to a completed one
-  const exitToApp = async () => {
-    setExiting(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push('/login'); return; }
-    const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single();
-    const { data: memberships } = await supabase.from('company_memberships')
-      .select('company_id').eq('user_id', user.id);
-    const ids = (memberships || []).map((m: any) => m.company_id).filter((id: string) => id !== profile?.company_id);
-    if (ids.length > 0) {
-      const { data: done } = await supabase.from('company_profile')
-        .select('id').in('id', ids).eq('onboarding_complete', true).limit(1);
-      if (done && done.length > 0) {
-        await supabase.rpc('switch_company', { target_company_id: done[0].id });
-        window.location.href = '/dashboard';
-        return;
-      }
-    }
-    setExiting(false);
-  };
 
   const toggleCountry = (c: string) => setSelectedCountries(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c]);
   const toggleModule = (k: string) => setSelectedModules(p => p.includes(k) ? p.filter(x => x !== k) : [...p, k]);
@@ -116,7 +75,25 @@ export default function OnboardingPage() {
 
       let companyId = existingProfile?.company_id;
 
-      if (!companyId) {
+      // Creating an ADDITIONAL company (from the switcher): always make a new one
+      // and switch to it, regardless of any existing company.
+      if (isNewCompany) {
+        const { data: newId, error: rpcError } = await supabase.rpc('create_additional_company', { p_name: info.name });
+        if (rpcError || !newId) {
+          setFinishError(`Company creation failed: ${rpcError?.message || 'unknown error'}. Make sure the multi-company SQL has been run.`);
+          setSaving(false);
+          return;
+        }
+        companyId = newId;
+        await supabase.rpc('switch_company', { target_company_id: newId });
+        // Fill in the details the wizard collected
+        await supabase.from('company_profile').update({
+          industry: info.industry,
+          size_range: info.size,
+          headquarters_country: selectedCountries[0] || '',
+          onboarding_complete: true,
+        }).eq('id', newId);
+      } else if (!companyId) {
         const { data: company, error: companyError } = await supabase
           .from('company_profile').insert({
             name: info.name,
