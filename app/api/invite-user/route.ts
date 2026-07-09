@@ -75,22 +75,28 @@ export async function POST(req: Request) {
     }
 
     // A database trigger auto-creates the profile row on user creation.
-    // Wait a moment for it, then UPDATE that row with company + role.
-    await new Promise(r => setTimeout(r, 400));
-    const { error: linkErr } = await adminClient.from('profiles').update({
-      email: email.trim(),
-      company_id: profile.company_id,
-      role: role || 'employee',
-      agency_id: agency_id || null,
-      custom_role_id: custom_role_id || null,
-    }).eq('id', created.user.id);
+    // Ensure the profile exists AND is linked to this company/role via upsert
+    // with a short retry, so it's reliable even if the trigger is slow or failed.
+    let linked = false;
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 3 && !linked; attempt++) {
+      await new Promise(r => setTimeout(r, 300));
+      const { error: upErr } = await adminClient.from('profiles').upsert({
+        id: created.user.id,
+        email: email.trim(),
+        company_id: profile.company_id,
+        role: role || 'employee',
+        agency_id: agency_id || null,
+        custom_role_id: custom_role_id || null,
+      }, { onConflict: 'id' });
+      if (!upErr) linked = true; else lastErr = upErr;
+    }
 
-    if (linkErr) {
-      // Not fatal — the user exists; just report it so the admin knows.
+    if (!linked) {
       return NextResponse.json({
         success: true,
         tempPassword: tempPw,
-        note: `Account created, but role/company link had an issue: ${linkErr.message}. You can set their role from the Users list.`,
+        note: `Account created, but linking to your company had an issue: ${lastErr?.message || 'unknown'}. They may not appear in the list yet.`,
       });
     }
 
