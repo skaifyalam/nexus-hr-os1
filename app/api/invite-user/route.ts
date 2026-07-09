@@ -47,8 +47,16 @@ export async function POST(req: Request) {
     });
 
     if (createErr) {
-      // Surface the fullest possible detail so we never get an empty {} error.
-      const detail = createErr.message || (createErr as any).error_description || (createErr as any).msg || JSON.stringify(createErr) || 'Unknown error from createUser.';
+      // Supabase AuthError often has status/code even when message is empty.
+      const anyErr = createErr as any;
+      const parts = [
+        anyErr.message,
+        anyErr.code && `code=${anyErr.code}`,
+        anyErr.status && `status=${anyErr.status}`,
+        anyErr.name && `name=${anyErr.name}`,
+        anyErr.__isAuthError && 'authError',
+      ].filter(Boolean);
+      const detail = parts.length ? parts.join(' ') : (Object.keys(anyErr).length ? JSON.stringify(anyErr, Object.getOwnPropertyNames(anyErr)) : 'empty error object');
       if (/already.*registered|already.*exists|duplicate|been registered/i.test(detail)) {
         return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 400 });
       }
