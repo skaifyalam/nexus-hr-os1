@@ -100,10 +100,19 @@ export async function POST(req: Request) {
       });
     }
 
+    // Read back the profile to CONFIRM company_id actually persisted.
+    const { data: check } = await adminClient.from('profiles')
+      .select('company_id, role, custom_role_id').eq('id', created.user.id).single();
+    const confirmedCompany = check?.company_id;
+    const matches = String(confirmedCompany) === String(profile.company_id);
+
     return NextResponse.json({
       success: true,
       tempPassword: tempPw,
-      note: 'Account created. Share this temporary password with the user — they can change it after logging in.',
+      companyLinked: matches,
+      note: matches
+        ? 'Account created and linked to your company.'
+        : `Account created, but company link shows ${confirmedCompany || 'none'} instead of expected. Contact support.`,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || 'Unexpected server error while adding the user.' }, { status: 500 });

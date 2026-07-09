@@ -130,6 +130,8 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
       }
       setInviteMsg(`✓ User created for ${iEmail}. Share this password with them: ${iPassword}`);
       setIEmail(''); setIPassword(''); setIRoleId('');
+      // Refresh so the new user appears in the list + role counts update.
+      setTimeout(() => { window.location.reload(); }, 1500);
     } catch (e: any) { setInviteMsg(e.message); }
     setInviting(false);
   };
