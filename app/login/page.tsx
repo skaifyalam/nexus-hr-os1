@@ -25,20 +25,7 @@ export default function LoginPage() {
     setLoading(true);
 
     if (mode === 'login') {
-      // Allow login by username (no @) — resolve it to the internal login email first.
-      let loginEmail = email.trim();
-      if (loginEmail && !loginEmail.includes('@')) {
-        try {
-          const res = await fetch('/api/resolve-username', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: loginEmail }),
-          });
-          const json = await res.json();
-          if (json.email) loginEmail = json.email;
-          else { setError('Username not found. Check the username, or use your email.'); setLoading(false); return; }
-        } catch { setError('Could not verify username. Try again.'); setLoading(false); return; }
-      }
-      const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) {
         setError(error.message);
       } else {
@@ -87,8 +74,8 @@ export default function LoginPage() {
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email or username"
-            type="text"
+            placeholder="you@example.com"
+            type="email"
             className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <input

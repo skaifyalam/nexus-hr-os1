@@ -101,30 +101,35 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
     setRoles(p => p.filter(r => r.id !== id));
   };
 
-  // ─── Create user (username + password, no email) ───
+  // ─── Add user (email + password) ───
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [iUsername, setIUsername] = useState('');
+  const [iEmail, setIEmail] = useState('');
   const [iPassword, setIPassword] = useState('');
   const [iRoleId, setIRoleId] = useState('');
   const [inviting, setInviting] = useState(false);
   const [inviteMsg, setInviteMsg] = useState('');
 
   const inviteUser = async () => {
-    if (!iUsername.trim() || !iPassword.trim()) return;
+    if (!iEmail.trim() || !iPassword.trim()) return;
     setInviting(true); setInviteMsg('');
     try {
-      const res = await fetch('/api/create-username-user', {
+      const res = await fetch('/api/invite-user', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: iUsername.trim(), password: iPassword, role: 'employee', custom_role_id: iRoleId || null }),
+        body: JSON.stringify({ email: iEmail.trim(), password: iPassword, role: 'employee', custom_role_id: iRoleId || null }),
       });
-      const json = await res.json().catch(() => ({ error: 'Server returned an unreadable response.' }));
+      const raw = await res.text();
+      let json: any = {};
+      try { json = raw ? JSON.parse(raw) : {}; } catch { json = { error: raw || 'Empty response.' }; }
       if (!res.ok) {
-        let msg = json.error;
-        if (!msg || typeof msg === 'object') msg = JSON.stringify(json) || 'Request failed.';
+        let msg = '';
+        if (typeof json?.error === 'string' && json.error.trim()) msg = json.error;
+        else if (json?.error && typeof json.error === 'object') msg = JSON.stringify(json.error, Object.getOwnPropertyNames(json.error));
+        else if (raw && raw.trim() && raw.trim() !== '{}') msg = raw;
+        else msg = `Request failed (HTTP ${res.status}). The server returned no error detail.`;
         setInviteMsg(String(msg)); setInviting(false); return;
       }
-      setInviteMsg(`✓ User "${json.username}" created. They can log in with this username and the password you set.`);
-      setIUsername(''); setIPassword(''); setIRoleId('');
+      setInviteMsg(`✓ User created for ${iEmail}. Share this password with them: ${iPassword}`);
+      setIEmail(''); setIPassword(''); setIRoleId('');
     } catch (e: any) { setInviteMsg(e.message); }
     setInviting(false);
   };
@@ -185,7 +190,7 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
             </div>
           </div>
           <div className="flex justify-end mb-4">
-            <button onClick={() => setInviteOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Mail size={14} />Invite User</button>
+            <button onClick={() => { setInviteMsg(''); setIEmail(''); setIPassword(''); setIRoleId(''); setInviteOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Mail size={14} />Add User</button>
           </div>
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <table className="w-full">
@@ -310,9 +315,8 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Username</label>
-                <input value={iUsername} onChange={e => setIUsername(e.target.value)} type="text" placeholder="e.g. john.hr" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                <p className="text-xs text-slate-400">Letters, numbers, dots, dashes. No email needed.</p>
+                <label className="text-sm font-medium text-slate-700">Email address</label>
+                <input value={iEmail} onChange={e => setIEmail(e.target.value)} type="email" placeholder="person@company.com" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">Password</label>
@@ -326,11 +330,11 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                 </select>
               </div>
               <p className="text-xs text-slate-400">Share the username and password with them — they log in with those. They can change the password after logging in.</p>
-              {inviteMsg && <p className={`text-xs ${inviteMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{inviteMsg}</p>}
+              {inviteMsg && inviteMsg.trim() && inviteMsg.trim() !== '{}' && <p className={`text-xs ${inviteMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{inviteMsg}</p>}
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
               <button onClick={() => setInviteOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
-              <button onClick={inviteUser} disabled={!iUsername.trim() || !iPassword.trim() || inviting} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{inviting ? 'Creating…' : 'Create User'}</button>
+              <button onClick={inviteUser} disabled={!iEmail.trim() || !iPassword.trim() || inviting} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{inviting ? 'Creating…' : 'Create User'}</button>
             </div>
           </div>
         </div>

@@ -37,8 +37,10 @@ export async function POST(req: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // Create the user directly with a temp password (reliable, no email needed).
-    const tempPw = 'Naibus@' + Math.random().toString(36).slice(2, 8) + Math.floor(Math.random() * 90 + 10);
+    // Use the password the admin set; fall back to a generated one if none provided.
+    const tempPw = (body.password && String(body.password).length >= 6)
+      ? String(body.password)
+      : 'Naibus@' + Math.random().toString(36).slice(2, 8) + Math.floor(Math.random() * 90 + 10);
     const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
       email: email.trim(),
       password: tempPw,
