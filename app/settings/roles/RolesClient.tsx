@@ -101,20 +101,21 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
     setRoles(p => p.filter(r => r.id !== id));
   };
 
-  // ─── Invite user ───
+  // ─── Create user (username + password, no email) ───
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [iEmail, setIEmail] = useState('');
+  const [iUsername, setIUsername] = useState('');
+  const [iPassword, setIPassword] = useState('');
   const [iRoleId, setIRoleId] = useState('');
   const [inviting, setInviting] = useState(false);
   const [inviteMsg, setInviteMsg] = useState('');
 
   const inviteUser = async () => {
-    if (!iEmail.trim()) return;
+    if (!iUsername.trim() || !iPassword.trim()) return;
     setInviting(true); setInviteMsg('');
     try {
-      const res = await fetch('/api/invite-user', {
+      const res = await fetch('/api/create-username-user', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: iEmail.trim(), role: 'employee', custom_role_id: iRoleId || null }),
+        body: JSON.stringify({ username: iUsername.trim(), password: iPassword, role: 'employee', custom_role_id: iRoleId || null }),
       });
       const json = await res.json().catch(() => ({ error: 'Server returned an unreadable response.' }));
       if (!res.ok) {
@@ -122,13 +123,8 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
         if (!msg || typeof msg === 'object') msg = JSON.stringify(json) || 'Request failed.';
         setInviteMsg(String(msg)); setInviting(false); return;
       }
-      if (json.tempPassword) {
-        setInviteMsg(`✓ Account created for ${iEmail}. Email isn't set up, so share this temporary password: ${json.tempPassword}`);
-      } else {
-        setInviteMsg(`✓ Invitation sent to ${iEmail}. They'll get an email to set their password.`);
-      }
-      setIEmail(''); setIRoleId('');
-      if (!json.tempPassword) setTimeout(() => { setInviteOpen(false); setInviteMsg(''); }, 2500);
+      setInviteMsg(`✓ User "${json.username}" created. They can log in with this username and the password you set.`);
+      setIUsername(''); setIPassword(''); setIRoleId('');
     } catch (e: any) { setInviteMsg(e.message); }
     setInviting(false);
   };
@@ -314,8 +310,13 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Email address</label>
-                <input value={iEmail} onChange={e => setIEmail(e.target.value)} type="email" placeholder="person@company.com" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <label className="text-sm font-medium text-slate-700">Username</label>
+                <input value={iUsername} onChange={e => setIUsername(e.target.value)} type="text" placeholder="e.g. john.hr" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <p className="text-xs text-slate-400">Letters, numbers, dots, dashes. No email needed.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Password</label>
+                <input value={iPassword} onChange={e => setIPassword(e.target.value)} type="text" placeholder="At least 6 characters" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">Role</label>
@@ -324,12 +325,12 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                   {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
-              <p className="text-xs text-slate-400">We'll create their account and give you a temporary password to share. They can change it after logging in.</p>
+              <p className="text-xs text-slate-400">Share the username and password with them — they log in with those. They can change the password after logging in.</p>
               {inviteMsg && <p className={`text-xs ${inviteMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{inviteMsg}</p>}
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
               <button onClick={() => setInviteOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
-              <button onClick={inviteUser} disabled={!iEmail.trim() || inviting} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{inviting ? 'Creating…' : 'Create User'}</button>
+              <button onClick={inviteUser} disabled={!iUsername.trim() || !iPassword.trim() || inviting} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{inviting ? 'Creating…' : 'Create User'}</button>
             </div>
           </div>
         </div>
