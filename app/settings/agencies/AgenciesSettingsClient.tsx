@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Plus, Edit2, Trash2, X, AlertCircle, Building2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function AgenciesSettingsClient({ initialAgencies, candCounts }: { initialAgencies: any[]; candCounts: any[] }) {
+export default function AgenciesSettingsClient({ initialAgencies, candCounts, companyId }: { initialAgencies: any[]; candCounts: any[]; companyId: string }) {
   const [agencies, setAgencies] = useState(initialAgencies);
   const [modal, setModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
   const [form, setForm] = useState({ name: '', country: '', contact_name: '', contact_email: '', contact_phone: '', status: 'active' });
@@ -24,7 +24,7 @@ export default function AgenciesSettingsClient({ initialAgencies, candCounts }: 
       if (error) { setError(error.message); return; }
       setAgencies((p) => p.map((a) => (a.id === modal.editing ? data : a)));
     } else {
-      const { data, error } = await supabase.from('agencies').insert(form).select().single();
+      const { data, error } = await supabase.from('agencies').insert({ ...form, company_id: companyId }).select().single();
       if (error) { setError(error.message); return; }
       setAgencies((p) => [...p, data]);
     }

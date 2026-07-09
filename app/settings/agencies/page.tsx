@@ -11,12 +11,12 @@ export default async function AgenciesSettingsPage() {
 
   if (!profile || !['super_admin', 'hr_director'].includes(profile.role)) redirect('/dashboard');
 
-  const { data: agencies } = await supabase.from('agencies').select('*').order('name');
+  const { data: agencies } = await supabase.from('agencies').select('*').eq('company_id', profile?.company_id).order('name');
   const { data: candCounts } = await supabase.from('candidates').select('agency_id');
 
   return (
     <Shell current="/settings/agencies" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
-      <AgenciesSettingsClient initialAgencies={agencies || []} candCounts={candCounts || []} />
+      <AgenciesSettingsClient initialAgencies={agencies || []} candCounts={candCounts || []} companyId={profile?.company_id || ''} />
     </Shell>
   );
 }

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Plus, Edit2, Trash2, X, AlertCircle, Building2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function DepartmentsClient({ initialDepartments, empCounts }: { initialDepartments: any[]; empCounts: any[] }) {
+export default function DepartmentsClient({ initialDepartments, empCounts, companyId }: { initialDepartments: any[]; empCounts: any[]; companyId: string }) {
   const [departments, setDepartments] = useState(initialDepartments);
   const [modal, setModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
   const [form, setForm] = useState({ name: '', code: '' });
@@ -22,7 +22,7 @@ export default function DepartmentsClient({ initialDepartments, empCounts }: { i
       if (error) { setError(error.message); return; }
       setDepartments((p) => p.map((d) => (d.id === modal.editing ? data : d)));
     } else {
-      const { data, error } = await supabase.from('departments').insert(form).select().single();
+      const { data, error } = await supabase.from('departments').insert({ ...form, company_id: companyId }).select().single();
       if (error) { setError(error.message); return; }
       setDepartments((p) => [...p, data]);
     }
