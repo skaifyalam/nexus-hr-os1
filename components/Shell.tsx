@@ -125,41 +125,15 @@ export default function Shell({
   useEffect(() => {
     if (!companyId) return;
     (async () => {
-      // Shared labels (company-wide) + this user's personal order
-      const [{ data: labels }, { data: orderRow }] = await Promise.all([
-        supabase.from('feature_labels').select('feature_key, label').eq('company_id', companyId),
-        supabase.from('user_feature_order').select('ordered_keys').eq('company_id', companyId).maybeSingle(),
-      ]);
-
-      let list = DEFAULT_FEATURES.map(f => {
+      // Only load custom labels (company-wide). Order is ALWAYS the fixed default.
+      const { data: labels } = await supabase.from('feature_labels').select('feature_key, label').eq('company_id', companyId);
+      const list = DEFAULT_FEATURES.map(f => {
         const custom = labels?.find((l: any) => l.feature_key === f.key);
         return { ...f, label: custom?.label || f.label };
       });
-
-      // Apply this user's saved order — but keep any features NOT in the saved list
-      // in their natural default position (prevents jumping on refresh when new
-      // features were added after the user last saved their order).
-      const savedOrder: string[] = orderRow?.ordered_keys || [];
-      if (savedOrder.length > 0) {
-        const defaultIndex = (k: string) => DEFAULT_FEATURES.findIndex(f => f.key === k);
-        list = [...list].sort((a, b) => {
-          const ia = savedOrder.indexOf(a.key), ib = savedOrder.indexOf(b.key);
-          // both saved → saved order
-          if (ia !== -1 && ib !== -1) return ia - ib;
-          // both unsaved → default order
-          if (ia === -1 && ib === -1) return defaultIndex(a.key) - defaultIndex(b.key);
-          // one saved, one not → keep them near their default slots by comparing
-          // the unsaved item's default index against the saved item's default index
-          const aRank = ia !== -1 ? ia : defaultIndex(a.key);
-          const bRank = ib !== -1 ? ib : defaultIndex(b.key);
-          return aRank - bRank;
-        });
-      }
-      // Only update if the computed order actually differs from what's shown,
-      // to avoid a visible re-shuffle/jump on every load.
       setFeatures(prev => {
-        const sameLabels = prev.length === list.length && prev.every((p, i) => p.key === list[i].key && p.label === list[i].label);
-        return sameLabels ? prev : list;
+        const same = prev.length === list.length && prev.every((p, i) => p.key === list[i].key && p.label === list[i].label);
+        return same ? prev : list;
       });
     })();
   }, [companyId]);
@@ -338,27 +312,9 @@ export default function Shell({
             const isEditing = renamingSec === s.id;
             return (
               <div key={s.id} className="relative">
-                {/* Drop indicator line */}
-                {dragOverSec === s.id && dragSec !== s.id && (
-                  <div className="absolute -top-1 left-2 right-2 h-0.5 bg-indigo-500 rounded-full z-10" />
-                )}
                 <div
-                  onDragOver={e => { e.preventDefault(); setDragOverSec(s.id); }}
-                  onDragLeave={() => setDragOverSec(d => d === s.id ? null : d)}
-                  onDrop={() => reorderSection(s.id)}
-                  className={`group/sec flex items-center rounded-xl transition-all ${dragSec === s.id ? 'opacity-30' : ''} ${isActive(href) ? 'bg-indigo-600 shadow-sm' : 'hover:bg-slate-100'}`}
+                  className={`group/sec flex items-center rounded-xl transition-all ${isActive(href) ? 'bg-indigo-600 shadow-sm' : 'hover:bg-slate-100'}`}
                 >
-                  {/* Drag handle — the only draggable element */}
-                  <div
-                    draggable
-                    onDragStart={() => setDragSec(s.id)}
-                    onDragEnd={() => { setDragSec(null); setDragOverSec(null); }}
-                    title="Drag to reorder"
-                    className={`cursor-grab active:cursor-grabbing px-1 py-2 flex-shrink-0 opacity-0 group-hover/sec:opacity-100 transition-opacity ${isActive(href) ? 'text-white/50' : 'text-slate-300 hover:text-slate-500'}`}
-                  >
-                    <GripVertical size={12} />
-                  </div>
-
                   {isEditing ? (
                     <input
                       autoFocus
@@ -406,24 +362,9 @@ export default function Shell({
             const isEditing = renamingFeature === f.key;
             return (
               <div key={f.key} className="relative">
-                {dragOverFeature === f.key && dragFeature !== f.key && (
-                  <div className="absolute -top-1 left-2 right-2 h-0.5 bg-indigo-500 rounded-full z-10" />
-                )}
                 <div
-                  onDragOver={e => { e.preventDefault(); setDragOverFeature(f.key); }}
-                  onDragLeave={() => setDragOverFeature(d => d === f.key ? null : d)}
-                  onDrop={() => reorderFeature(f.key)}
-                  className={`group/feat flex items-center rounded-xl transition-all ${dragFeature === f.key ? 'opacity-30' : ''} ${isActive(f.href) ? 'bg-indigo-600 shadow-sm' : 'hover:bg-slate-100'}`}
+                  className={`group/feat flex items-center rounded-xl transition-all ${isActive(f.href) ? 'bg-indigo-600 shadow-sm' : 'hover:bg-slate-100'}`}
                 >
-                  <div
-                    draggable
-                    onDragStart={() => setDragFeature(f.key)}
-                    onDragEnd={() => { setDragFeature(null); setDragOverFeature(null); }}
-                    title="Drag to reorder"
-                    className={`cursor-grab active:cursor-grabbing px-1 py-2 flex-shrink-0 opacity-0 group-hover/feat:opacity-100 transition-opacity ${isActive(f.href) ? 'text-white/50' : 'text-slate-300 hover:text-slate-500'}`}
-                  >
-                    <GripVertical size={12} />
-                  </div>
                   {isEditing ? (
                     <input
                       autoFocus
