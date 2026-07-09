@@ -155,7 +155,12 @@ export default function Shell({
           return aRank - bRank;
         });
       }
-      setFeatures(list);
+      // Only update if the computed order actually differs from what's shown,
+      // to avoid a visible re-shuffle/jump on every load.
+      setFeatures(prev => {
+        const sameLabels = prev.length === list.length && prev.every((p, i) => p.key === list[i].key && p.label === list[i].label);
+        return sameLabels ? prev : list;
+      });
     })();
   }, [companyId]);
 
