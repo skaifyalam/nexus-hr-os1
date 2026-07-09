@@ -116,8 +116,12 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: iEmail.trim(), role: 'employee', custom_role_id: iRoleId || null }),
       });
-      const json = await res.json();
-      if (!res.ok) { setInviteMsg(json.error || 'Invite failed.'); setInviting(false); return; }
+      const json = await res.json().catch(() => ({ error: 'Server returned an unreadable response.' }));
+      if (!res.ok) {
+        let msg = json.error;
+        if (!msg || typeof msg === 'object') msg = JSON.stringify(json) || 'Request failed.';
+        setInviteMsg(String(msg)); setInviting(false); return;
+      }
       if (json.tempPassword) {
         setInviteMsg(`✓ Account created for ${iEmail}. Email isn't set up, so share this temporary password: ${json.tempPassword}`);
       } else {

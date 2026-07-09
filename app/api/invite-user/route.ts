@@ -47,30 +47,36 @@ export async function POST(req: Request) {
     });
 
     if (createErr) {
-      const m = createErr.message || 'Could not create the user.';
-      // Friendlier message for the most common case
-      if (/already.*registered|already.*exists|duplicate/i.test(m)) {
+      // Surface the fullest possible detail so we never get an empty {} error.
+      const detail = createErr.message || (createErr as any).error_description || (createErr as any).msg || JSON.stringify(createErr) || 'Unknown error from createUser.';
+      if (/already.*registered|already.*exists|duplicate|been registered/i.test(detail)) {
         return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 400 });
       }
-      return NextResponse.json({ error: m }, { status: 400 });
+      return NextResponse.json({ error: `Create failed: ${detail}` }, { status: 400 });
     }
 
     if (!created?.user) {
       return NextResponse.json({ error: 'User creation returned no result.' }, { status: 400 });
     }
 
-    // Link the new user to this company + role
-    const { error: linkErr } = await adminClient.from('profiles').upsert({
-      id: created.user.id,
+    // A database trigger auto-creates the profile row on user creation.
+    // Wait a moment for it, then UPDATE that row with company + role.
+    await new Promise(r => setTimeout(r, 400));
+    const { error: linkErr } = await adminClient.from('profiles').update({
       email: email.trim(),
       company_id: profile.company_id,
       role: role || 'employee',
       agency_id: agency_id || null,
       custom_role_id: custom_role_id || null,
-    }, { onConflict: 'id' });
+    }).eq('id', created.user.id);
 
     if (linkErr) {
-      return NextResponse.json({ error: `User created but linking to company failed: ${linkErr.message}` }, { status: 400 });
+      // Not fatal — the user exists; just report it so the admin knows.
+      return NextResponse.json({
+        success: true,
+        tempPassword: tempPw,
+        note: `Account created, but role/company link had an issue: ${linkErr.message}. You can set their role from the Users list.`,
+      });
     }
 
     return NextResponse.json({
