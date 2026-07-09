@@ -4,6 +4,8 @@ import Shell from '@/components/Shell';
 import DashboardClient from './DashboardClient';
 import WelcomeGuide from '@/components/WelcomeGuide';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

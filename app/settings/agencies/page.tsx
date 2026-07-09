@@ -3,6 +3,8 @@ import Shell from '@/components/Shell';
 import AgenciesSettingsClient from './AgenciesSettingsClient';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AgenciesSettingsPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();

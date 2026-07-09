@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import StructureClient from './StructureClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function StructurePage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

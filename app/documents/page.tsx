@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import DocumentsClient from './DocumentsClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DocumentsPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

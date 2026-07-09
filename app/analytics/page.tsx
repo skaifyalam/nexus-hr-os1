@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import AnalyticsClient from './AnalyticsClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AnalyticsPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

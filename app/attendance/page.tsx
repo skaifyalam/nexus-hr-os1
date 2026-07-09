@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import AttendanceClient from './AttendanceClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AttendancePage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

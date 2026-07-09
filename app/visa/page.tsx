@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import VisaClient from './VisaClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function VisaPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

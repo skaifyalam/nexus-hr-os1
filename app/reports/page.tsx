@@ -5,6 +5,8 @@ import { createServerClient } from '@/lib/supabase/server';
 import Shell from '@/components/Shell';
 import ReportsClient from './ReportsClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ReportsPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

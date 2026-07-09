@@ -4,6 +4,8 @@ import Shell from '@/components/Shell';
 import Employee360 from './Employee360';
 import { notFound } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function EmployeeProfilePage({ params }: { params: { id: string } }) {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

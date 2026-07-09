@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import ConductClient from './ConductClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ConductPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

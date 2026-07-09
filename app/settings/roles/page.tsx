@@ -4,6 +4,8 @@ import Shell from '@/components/Shell';
 import RolesClient from './RolesClient';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function RolesPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

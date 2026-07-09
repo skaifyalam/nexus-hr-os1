@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { Check, ChevronRight, ChevronLeft, Loader, Plus, X, Building2, Users, Globe, Settings, GitBranch, Calendar, TrendingUp, AlertTriangle, DoorOpen } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
+export const dynamic = 'force-dynamic';
+
 const MODULES = [
   { key: 'recruitment', label: 'Recruitment Pipeline', desc: 'Track candidates from Selection to Onboarded across 13 GCC mobilization stages', icon: GitBranch, recommended: ['epc','oil','construction','contracting'] },
   { key: 'leave', label: 'Leave Management', desc: 'Leave requests, approvals, and balance tracking', icon: Calendar, recommended: [] },

@@ -3,6 +3,8 @@ import { getShellData } from '@/lib/shellData';
 import Shell from '@/components/Shell';
 import AccountClient from './AccountClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AccountPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

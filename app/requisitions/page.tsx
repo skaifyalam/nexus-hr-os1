@@ -3,6 +3,8 @@ import { getShellData } from '@/lib/shellData';
 import Shell from '@/components/Shell';
 import RequisitionsClient from './RequisitionsClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function RequisitionsPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

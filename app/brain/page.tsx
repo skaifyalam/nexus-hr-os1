@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import BrainClient from './BrainClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function BrainPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import LeaveClient from './LeaveClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function LeavePage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

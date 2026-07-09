@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import ComplianceClient from './ComplianceClient';
 
+export const dynamic = 'force-dynamic';
+
 async function fetchAllRecords(supabase: any, companyId: string, sectionKey: string) {
   let all: any[] = [];
   const CHUNK = 1000;

@@ -4,6 +4,8 @@ import Shell from '@/components/Shell';
 import ApprovalsClient from './ApprovalsClient';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ApprovalsPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();

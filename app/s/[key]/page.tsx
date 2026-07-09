@@ -5,6 +5,8 @@ import Shell from '@/components/Shell';
 import UniversalSection from './UniversalSection';
 import { notFound } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SectionPage({ params }: { params: { key: string } }) {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

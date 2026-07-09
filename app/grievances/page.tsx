@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import GrievancesClient from './GrievancesClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function GrievancesPage() {
   const supabase = createServerClient();
   const { profile, sections, user } = await getShellData();

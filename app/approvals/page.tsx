@@ -3,6 +3,8 @@ import { getShellData } from '@/lib/shellData';
 import Shell from '@/components/Shell';
 import ApprovalsInbox from './ApprovalsInbox';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ApprovalsInboxPage() {
   const supabase = createServerClient();
   const { profile, sections } = await getShellData();
