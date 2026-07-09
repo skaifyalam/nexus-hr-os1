@@ -52,7 +52,7 @@ DECLARE
   v_company UUID;
 BEGIN
   v_user := auth.uid()::UUID;
-  INSERT INTO company_profile (company_name, onboarding_complete)
+  INSERT INTO company_profile (name, onboarding_complete)
   VALUES (p_name, false) RETURNING id INTO v_company;
   INSERT INTO company_memberships (user_id, company_id, role)
   VALUES (v_user, v_company, 'super_admin');
