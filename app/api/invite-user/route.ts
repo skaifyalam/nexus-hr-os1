@@ -32,8 +32,8 @@ export async function POST(req: Request) {
     }
 
     const adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_URL.trim(),
+      process.env.SUPABASE_SERVICE_ROLE_KEY.trim(),
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
@@ -59,6 +59,11 @@ export async function POST(req: Request) {
       const detail = parts.length ? parts.join(' ') : (Object.keys(anyErr).length ? JSON.stringify(anyErr, Object.getOwnPropertyNames(anyErr)) : 'empty error object');
       if (/already.*registered|already.*exists|duplicate|been registered/i.test(detail)) {
         return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 400 });
+      }
+      // AuthRetryableFetchError = network fetch to Supabase auth failed. Add config hints.
+      if (/retryable|fetch/i.test(detail)) {
+        const urlHost = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/https?:\/\//, '').split('.')[0];
+        return NextResponse.json({ error: `Cannot reach Supabase Auth (${detail}). URL project ref appears to be "${urlHost}". Verify the service_role key belongs to THIS project and has not been rotated.` }, { status: 400 });
       }
       return NextResponse.json({ error: `Create failed: ${detail}` }, { status: 400 });
     }
