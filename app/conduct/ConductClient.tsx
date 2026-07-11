@@ -139,11 +139,12 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
       const candCodeField = candFields.find((f: any) => f.is_id_field || /code|id/i.test(f.field_label))?.field_key;
       if (candCodeField && remobFor.person_code) data[candCodeField] = remobFor.person_code;
       else if (remobFor.person_code) data['code'] = remobFor.person_code;
-      const { data: cand } = await supabase.from('section_records').insert({
+      const { data: cand, error: candErr } = await supabase.from('section_records').insert({
         company_id: companyId, section_key: 'candidate',
         record_id: remobFor.person_code || remobFor.person_name,
         data: { ...data, _remob_origin: true, _remob_visa_type: remobVisaType },
       }).select().single();
+      if (candErr) { setRemobMsg(`Could not add to pipeline: ${candErr.message}`); setRemobSaving(false); return; }
       newCandidateId = cand?.id || null;
     }
 
