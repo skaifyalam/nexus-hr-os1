@@ -204,17 +204,36 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
     if (!allocPerson || !allocBlock) return;
     const person = people.find(p => p.id === allocPerson);
     const agency = agencies.find(a => a.id === allocAgency);
+    const today = new Date().toISOString().split('T')[0];
     const { data } = await supabase.from('visa_allocations').insert({
       company_id: companyId, visa_block_id: allocBlock.id,
       person_record_id: allocPerson, person_name: person ? pName(person) : '',
       person_code: person ? pCode(person) : '', passport_number: person ? pPass(person) : '',
       agency_id: allocAgency || null, agency_name: agency?.name || '',
       visa_type: allocBlock.visa_type || '',
-      stage: 'ewakala_pending', status: 'allocated',
+      stage: 'ewakala_pending', status: 'allocated', allocated_date: today,
     }).select().single();
     if (data) setAllocations(p => [...p, data]);
+
+    // If this person is a candidate record (incl. remob-origin), sync the agency +
+    // allocation date + status back onto their pipeline record so it stays consistent.
+    try {
+      const { data: rec } = await supabase.from('section_records').select('id, data, section_key').eq('id', allocPerson).maybeSingle();
+      if (rec && rec.section_key === 'candidate') {
+        const updated = { ...(rec.data || {}) };
+        updated._visa_agency = agency?.name || '';
+        updated._visa_allocated_date = today;
+        if (statusFieldKey) updated[statusFieldKey] = 'Visa Allocated';
+        await supabase.from('section_records').update({ data: updated }).eq('id', allocPerson);
+        // If this candidate came from a remobilization, advance the remob status.
+        if (rec.data?._remob_origin) {
+          await supabase.from('remobilizations').update({ status: 'visa_allocated', visa_allocation_id: data?.id || null })
+            .eq('note', `pipeline_candidate:${allocPerson}`);
+        }
+      }
+    } catch {}
+
     setAllocPerson(''); setAllocAgency(''); setAllocType('');
-    // Remove from pending list if they were there
     setPending(p => p.filter(x => x.id !== allocPerson));
   };
 

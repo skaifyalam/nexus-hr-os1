@@ -184,10 +184,43 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
     setTimeout(() => { setRemobFor(null); setRemobMsg(''); }, 3000);
   };
 
-  const cancelRemob = async (id: string) => {
-    if (!confirm('Cancel this remobilization? The person will no longer show as pending in Visa Management.')) return;
+  const cancelRemob = async (remob: any) => {
+    const id = typeof remob === 'string' ? remob : remob.id;
+    const r = typeof remob === 'string' ? remobs.find(x => x.id === id) : remob;
+    if (!r) return;
+
+    // Extract the linked pipeline candidate id (stored as "pipeline_candidate:UUID")
+    const candId = (r.note && r.note.startsWith('pipeline_candidate:')) ? r.note.split(':')[1] : null;
+
+    // Check whether the agency has started working / QIWA processed.
+    let started = false;
+    if (r.path === 'qiwa_transfer') {
+      // QIWA processed?
+      const { data: qt } = await supabase.from('qiwa_transfers').select('id, stage').eq('person_record_id', r.person_record_id).neq('stage', 'cancelled');
+      if (qt && qt.length > 0) started = true;
+    }
+    if (candId) {
+      // Any visa allocation for this candidate that's moved past the first stage?
+      const { data: allocs } = await supabase.from('visa_allocations').select('id, stage, agency_id').eq('person_record_id', candId).neq('stage', 'cancelled');
+      if (allocs && allocs.length > 0) {
+        // If any allocation exists AND has an agency or moved past ewakala_pending, consider it started
+        const inProgress = allocs.some((a: any) => a.agency_id || (a.stage && a.stage !== 'ewakala_pending' && a.stage !== 'allocated'));
+        if (inProgress) started = true;
+      }
+    }
+
+    if (started) {
+      alert('Cannot cancel: the agency has already started working on this person (visa/QIWA in progress). Cancel or reverse that work first.');
+      return;
+    }
+
+    if (!confirm('Cancel this remobilization? This will also remove the pipeline candidate it created (since work has not started).')) return;
+
+    // Clean up linked records
+    if (candId) await supabase.from('section_records').delete().eq('id', candId);
+    if (r.path === 'qiwa_transfer') await supabase.from('qiwa_transfers').delete().eq('person_record_id', r.person_record_id).eq('stage', 'requested');
     await supabase.from('remobilizations').update({ status: 'cancelled' }).eq('id', id);
-    setRemobs(p => p.map(r => r.id === id ? { ...r, status: 'cancelled' } : r));
+    setRemobs(p => p.map(x => x.id === id ? { ...x, status: 'cancelled' } : x));
   };
   const toggleChecklistItem = async (rec: any, idx: number) => {
     const checklist = rec.checklist.map((c: any, i: number) => i === idx ? { ...c, done: !c.done } : c);
@@ -482,7 +515,7 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
                       )}
                     </div>
                     {r.status !== 'cancelled' && r.status !== 'completed' && (
-                      <button onClick={() => cancelRemob(r.id)} className="text-xs font-medium text-slate-400 hover:text-red-500">Cancel</button>
+                      <button onClick={() => cancelRemob(r)} className="text-xs font-medium text-slate-400 hover:text-red-500">Cancel</button>
                     )}
                   </div>
                 </div>
