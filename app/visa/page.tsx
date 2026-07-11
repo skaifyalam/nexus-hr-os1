@@ -15,12 +15,13 @@ export default async function VisaPage() {
   if (_access === 'none') redirect('/dashboard');
   const companyId = profile?.company_id || '';
 
-  const [{ data: blocks }, { data: allocations }, { data: candFields }, { data: agencies }, { data: company }] = await Promise.all([
+  const [{ data: blocks }, { data: allocations }, { data: candFields }, { data: agencies }, { data: company }, { data: remobsPending }] = await Promise.all([
     supabase.from('visa_blocks').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
     supabase.from('visa_allocations').select('*').eq('company_id', companyId),
     supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'candidate').order('display_order'),
     supabase.from('agencies').select('id, name').eq('company_id', companyId).order('name'),
     supabase.from('company_profile').select('candidate_status_field_key, visa_stage_map').eq('id', companyId).maybeSingle(),
+    supabase.from('remobilizations').select('*').eq('company_id', companyId).eq('status', 'pending'),
   ]);
 
   // Detect the candidate status field (stored override, else auto-detect by label)
@@ -76,9 +77,13 @@ export default async function VisaPage() {
     }
   }
 
+  // Split pending remobilizations by path
+  const remobVisaPending = (remobsPending || []).filter((r: any) => r.path === 'new_visa');
+  const remobQiwaPending = (remobsPending || []).filter((r: any) => r.path === 'qiwa_transfer');
+
   return (
     <Shell current="/visa" profile={profile} sections={sections} companyId={companyId}>
-      <VisaClient initialBlocks={blocks || []} initialAllocations={allocations || []} people={people} candFields={candFields || []} agencies={agencies || []} statusFieldKey={statusFieldKey} candidateStages={candidateStages} initialStageMap={company?.visa_stage_map || {}} pendingVisa={pendingVisa} companyId={companyId} />
+      <VisaClient initialBlocks={blocks || []} initialAllocations={allocations || []} people={people} candFields={candFields || []} agencies={agencies || []} statusFieldKey={statusFieldKey} candidateStages={candidateStages} initialStageMap={company?.visa_stage_map || {}} pendingVisa={pendingVisa} remobVisaPending={remobVisaPending} remobQiwaPending={remobQiwaPending} companyId={companyId} />
     </Shell>
   );
 }

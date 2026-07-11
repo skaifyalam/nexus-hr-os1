@@ -1,20 +1,28 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2, FileCheck, GitBranch, Sparkles } from 'lucide-react';
+import { Plus, X, Upload, Download, Loader, CreditCard, Users, CheckCircle2, AlertTriangle, UserPlus, Trash2, FileCheck, GitBranch, Sparkles, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
 import { createClient } from '@/lib/supabase/client';
 
 const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], statusFieldKey = '', candidateStages = [], initialStageMap = {}, pendingVisa = [], companyId }: {
-  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; statusFieldKey?: string; candidateStages?: string[]; initialStageMap?: any; pendingVisa?: any[]; companyId: string;
+export default function VisaClient({ initialBlocks, initialAllocations, people, candFields, agencies = [], statusFieldKey = '', candidateStages = [], initialStageMap = {}, pendingVisa = [], remobVisaPending = [], remobQiwaPending = [], companyId }: {
+  initialBlocks: any[]; initialAllocations: any[]; people: any[]; candFields: any[]; agencies?: any[]; statusFieldKey?: string; candidateStages?: string[]; initialStageMap?: any; pendingVisa?: any[]; remobVisaPending?: any[]; remobQiwaPending?: any[]; companyId: string;
 }) {
   const [blocks, setBlocks] = useState(initialBlocks);
-  const [tab, setTab] = useState<'blocks' | 'ewakala'>('blocks');
+  const [tab, setTab] = useState<'blocks' | 'ewakala' | 'qiwa'>('blocks');
+  const [qiwaPending, setQiwaPending] = useState<any[]>(remobQiwaPending);
   const [stageMap, setStageMap] = useState<any>(initialStageMap || {});
   const [mapOpen, setMapOpen] = useState(false);
-  const [pending, setPending] = useState<any[]>(pendingVisa);
+  const [pending, setPending] = useState<any[]>([
+    ...pendingVisa,
+    ...remobVisaPending.map((r: any) => ({
+      id: r.person_record_id, record_id: r.person_code || r.person_name,
+      data: {}, _status: `Remobilization · ${r.original_visa_type}`, _remobId: r.id,
+      _name: r.person_name,
+    })),
+  ]);
   const [quickAllocateBlock, setQuickAllocateBlock] = useState('');
   const [allocations, setAllocations] = useState(initialAllocations);
   const [addOpen, setAddOpen] = useState(false);
@@ -24,6 +32,21 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
   const supabase = createClient();
 
   // Visa workflow stages, in order
+  // Mark a QIWA transfer done → completes the remobilization
+  const processQiwa = async (remob: any) => {
+    if (!confirm(`Mark QIWA transfer done for ${remob.person_name}? This completes their remobilization.`)) return;
+    const today = new Date().toISOString().split('T')[0];
+    const { data: qt } = await supabase.from('qiwa_transfers').insert({
+      company_id: companyId, person_record_id: remob.person_record_id,
+      person_name: remob.person_name, person_code: remob.person_code,
+      stage: 'completed', requested_date: today, completed_date: today,
+    }).select().single();
+    await supabase.from('remobilizations').update({
+      status: 'completed', qiwa_transfer_id: qt?.id || null,
+    }).eq('id', remob.id);
+    setQiwaPending(p => p.filter(x => x.id !== remob.id));
+  };
+
   const STAGES = ['allocated', 'ewakala_pending', 'ewakala_issued', 'passport_submitted', 'stamped'];
   const STAGE_LABEL: any = {
     allocated: 'Allocated', ewakala_pending: 'Ewakala Pending', ewakala_issued: 'Ewakala Issued',
@@ -314,6 +337,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
       <div className="flex gap-2 mb-5">
         <button onClick={() => setTab('blocks')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'blocks' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><CreditCard size={14} />Visa Blocks</button>
         <button onClick={() => setTab('ewakala')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'ewakala' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><FileCheck size={14} />Ewakala</button>
+        <button onClick={() => setTab('qiwa')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'qiwa' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><RefreshCw size={14} />QIWA{qiwaPending.length > 0 ? ` (${qiwaPending.length})` : ''}</button>
       </div>
 
       {/* Pending for visa — auto-surfaced from the recruitment pipeline */}
@@ -328,7 +352,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
           </div>
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {pending.map(c => {
-              const nm = (candFields.find((f: any) => /name/i.test(f.field_label))?.field_key && c.data?.[candFields.find((f: any) => /name/i.test(f.field_label))?.field_key]) || c.record_id;
+              const nm = c._name || (candFields.find((f: any) => /name/i.test(f.field_label))?.field_key && c.data?.[candFields.find((f: any) => /name/i.test(f.field_label))?.field_key]) || c.record_id;
               return (
                 <div key={c.id} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 text-xs">
                   <span className="font-medium text-slate-700">{nm}</span>
@@ -475,6 +499,36 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                 </div>
               );
             })}
+          </div>
+        )
+      )}
+
+      {/* QIWA tab — remobilization candidates needing QIWA transfer */}
+      {tab === 'qiwa' && (
+        qiwaPending.length === 0 ? (
+          <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-14 text-center">
+            <RefreshCw size={36} className="text-slate-200 mx-auto mb-4" />
+            <p className="text-sm font-medium text-slate-600 mb-1">No QIWA transfers pending</p>
+            <p className="text-xs text-slate-400">When you remobilize a work-visa employee via local transfer, they appear here for QIWA processing.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 mb-2">These remobilized employees need a QIWA sponsorship transfer.</p>
+            {qiwaPending.map(r => (
+              <div key={r.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{r.person_name}</span>
+                      {r.person_code && <span className="text-xs font-mono text-slate-400">{r.person_code}</span>}
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">QIWA Transfer</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">Was on {r.original_visa_type} · local transfer</p>
+                  </div>
+                  <button onClick={() => processQiwa(r)} className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><RefreshCw size={13} />Mark QIWA Done</button>
+                </div>
+              </div>
+            ))}
           </div>
         )
       )}

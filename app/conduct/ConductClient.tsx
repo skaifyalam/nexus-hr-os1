@@ -12,12 +12,13 @@ const statusBadge = (s: string) =>
   : s === 'rejected' ? <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-50 text-red-600 rounded-full"><XCircle size={11} />rejected</span>
   : <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full"><Clock size={11} />{s.replace('_', ' ')}</span>;
 
-export default function ConductClient({ initialConduct, initialExits, employees, empFields, activeConfig, companyId, userEmail }: {
-  initialConduct: any[]; initialExits: any[]; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
+export default function ConductClient({ initialConduct, initialExits, initialRemobs = [], employees, empFields, activeConfig, companyId, userEmail }: {
+  initialConduct: any[]; initialExits: any[]; initialRemobs?: any[]; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
 }) {
-  const [tab, setTab] = useState<'conduct' | 'exit'>('conduct');
+  const [tab, setTab] = useState<'conduct' | 'exit' | 'remob'>('conduct');
   const [conduct, setConduct] = useState(initialConduct);
   const [exits, setExits] = useState(initialExits);
+  const [remobs, setRemobs] = useState(initialRemobs);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState('');
   const supabase = createClient();
@@ -26,10 +27,10 @@ export default function ConductClient({ initialConduct, initialExits, employees,
   // Mark an employee inactive by setting their active field to a non-active value
   const markEmployeeInactive = async (personRecordId: string) => {
     if (!activeConfig?.active_field_key || !personRecordId) return;
-    const emp = employees.find(e => e.id === personRecordId);
-    if (!emp) return;
-    // Set the active field to something NOT in active_values (use "Inactive")
-    const newData = { ...(emp.data || {}), [activeConfig.active_field_key]: 'Inactive' };
+    // Fetch the FULL record (the picker's copy is trimmed — using it would lose fields).
+    const { data: full } = await supabase.from('section_records').select('data').eq('id', personRecordId).single();
+    if (!full) return;
+    const newData = { ...(full.data || {}), [activeConfig.active_field_key]: 'Inactive' };
     await supabase.from('section_records').update({ data: newData }).eq('id', personRecordId);
   };
 
@@ -135,9 +136,17 @@ export default function ConductClient({ initialConduct, initialExits, employees,
       status: 'pending',
     });
     if (error) { setRemobMsg(error.message); setRemobSaving(false); return; }
-    setRemobMsg(`✓ Remobilization started. Path: ${path === 'qiwa_transfer' ? 'QIWA Transfer' : 'New Visa'}. It now shows as pending in Visa Management.`);
+    const { data: newRemob } = await supabase.from('remobilizations').select('*').eq('exit_record_id', remobFor.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (newRemob) setRemobs(p => [newRemob, ...p]);
+    setRemobMsg(`✓ Remobilization started. Path: ${path === 'qiwa_transfer' ? 'QIWA Transfer' : 'New Visa'}. It now shows in the Remobilization tab and as pending in Visa Management.`);
     setRemobSaving(false);
     setTimeout(() => { setRemobFor(null); setRemobMsg(''); }, 2500);
+  };
+
+  const cancelRemob = async (id: string) => {
+    if (!confirm('Cancel this remobilization? The person will no longer show as pending in Visa Management.')) return;
+    await supabase.from('remobilizations').update({ status: 'cancelled' }).eq('id', id);
+    setRemobs(p => p.map(r => r.id === id ? { ...r, status: 'cancelled' } : r));
   };
   const toggleChecklistItem = async (rec: any, idx: number) => {
     const checklist = rec.checklist.map((c: any, i: number) => i === idx ? { ...c, done: !c.done } : c);
@@ -242,6 +251,7 @@ export default function ConductClient({ initialConduct, initialExits, employees,
       <div className="flex gap-2 mb-5">
         <button onClick={() => setTab('conduct')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'conduct' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><ShieldAlert size={14} />Conduct</button>
         <button onClick={() => setTab('exit')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'exit' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><LogOut size={14} />Exit</button>
+        <button onClick={() => setTab('remob')} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium ${tab === 'remob' ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}><RotateCcw size={14} />Remobilization{remobs.filter(r => r.status !== 'cancelled' && r.status !== 'completed').length > 0 ? ` (${remobs.filter(r => r.status !== 'cancelled' && r.status !== 'completed').length})` : ''}</button>
       </div>
 
       {tab === 'conduct' && (
@@ -398,6 +408,49 @@ export default function ConductClient({ initialConduct, initialExits, employees,
           </div>
         </div>
       )}
+      {/* Remobilization tab */}
+      {tab === 'remob' && (
+        remobs.length === 0 ? (
+          <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-14 text-center">
+            <RotateCcw size={36} className="text-slate-200 mx-auto mb-4" />
+            <p className="text-sm font-medium text-slate-600 mb-1">No remobilizations yet</p>
+            <p className="text-xs text-slate-400">Use the "Remobilize" button on an exit record to bring someone back.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {remobs.map(r => {
+              const pathLabel = r.path === 'qiwa_transfer' ? 'QIWA Transfer' : 'New Visa';
+              const statusColor: any = {
+                pending: 'bg-amber-50 text-amber-700', visa_allocated: 'bg-sky-50 text-sky-700',
+                qiwa_allocated: 'bg-sky-50 text-sky-700', completed: 'bg-emerald-50 text-emerald-700',
+                cancelled: 'bg-slate-100 text-slate-400',
+              };
+              return (
+                <div key={r.id} className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-5 ${r.status === 'cancelled' ? 'opacity-60' : ''}`}>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-800">{r.person_name}</span>
+                        {r.person_code && <span className="text-xs font-mono text-slate-400">{r.person_code}</span>}
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${r.path === 'qiwa_transfer' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}`}>{pathLabel}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${statusColor[r.status] || 'bg-slate-100 text-slate-600'}`}>{r.status?.replace('_', ' ')}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">Was on {r.original_visa_type} · {r.how_left === 'local_transfer' ? 'Local transfer' : 'Exited'}</p>
+                      {r.status === 'pending' && (
+                        <p className="text-xs text-indigo-600 mt-1">→ Pending {r.path === 'qiwa_transfer' ? 'QIWA transfer' : 'visa'} in Visa Management</p>
+                      )}
+                    </div>
+                    {r.status !== 'cancelled' && r.status !== 'completed' && (
+                      <button onClick={() => cancelRemob(r.id)} className="text-xs font-medium text-slate-400 hover:text-red-500">Cancel</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
       {/* Remobilize modal */}
       {remobFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
