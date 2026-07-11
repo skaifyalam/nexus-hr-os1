@@ -161,7 +161,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
   }, [blocks, allocations]);
 
   // ─── New visa block ───
-  const [f, setF] = useState({ authority_number: '', visa_type: 'Work Visa', profession: '', nationality: '', sponsor: '', total_quantity: '1', issue_date: '', expiry_date: '', note: '' });
+  const [f, setF] = useState({ authority_number: '', visa_type: 'Work Visa', profession: '', nationality: '', sponsor: '', sponsor_id: '', total_quantity: '1', issue_date: '', expiry_date: '', note: '' });
   const setField = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
   const addBlock = async () => {
@@ -171,7 +171,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
       issue_date: f.issue_date || null, expiry_date: f.expiry_date || null,
     }).select().single();
     if (data) setBlocks(p => [data, ...p]);
-    setF({ authority_number: '', visa_type: 'Work Visa', profession: '', nationality: '', sponsor: '', total_quantity: '1', issue_date: '', expiry_date: '', note: '' });
+    setF({ authority_number: '', visa_type: 'Work Visa', profession: '', nationality: '', sponsor: '', sponsor_id: '', total_quantity: '1', issue_date: '', expiry_date: '', note: '' });
     setAddOpen(false);
   };
 
@@ -195,7 +195,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
       person_record_id: allocPerson, person_name: person ? pName(person) : '',
       person_code: person ? pCode(person) : '', passport_number: person ? pPass(person) : '',
       agency_id: allocAgency || null, agency_name: agency?.name || '',
-      visa_type: allocType || allocBlock.visa_type || '',
+      visa_type: allocBlock.visa_type || '',
       stage: 'ewakala_pending', status: 'allocated',
     }).select().single();
     if (data) setAllocations(p => [...p, data]);
@@ -257,6 +257,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
         const cProf = mc(['profession', 'designation', 'job']);
         const cNat = mc(['nationality', 'country']);
         const cSponsor = mc(['sponsor', 'company']);
+        const cSponsorId = mc(['sponsor id', 'sponsor_id', 'sponsorid']);
         const cQty = mc(['quantity', 'qty', 'count', 'total']);
         const cExp = mc(['expiry', 'expiry date']);
         const toDate = (v: any) => { if (!v) return null; if (v instanceof Date) return v.toISOString().split('T')[0]; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]; };
@@ -267,6 +268,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
           profession: cProf ? String(row[cProf]) : '',
           nationality: cNat ? String(row[cNat]) : '',
           sponsor: cSponsor ? String(row[cSponsor]) : '',
+          sponsor_id: cSponsorId ? String(row[cSponsorId]) : '',
           total_quantity: cQty ? (Number(row[cQty]) || 1) : 1,
           expiry_date: cExp ? toDate(row[cExp]) : null,
         }));
@@ -289,7 +291,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
     // Sheet 1: block summary
     const blockRows = blocks.map(b => ({
       'Authority Number': b.authority_number, 'Type': b.visa_type, 'Profession': b.profession,
-      'Nationality': b.nationality, 'Sponsor': b.sponsor, 'Total Visas': b.total_quantity,
+      'Nationality': b.nationality, 'Sponsor': b.sponsor, 'Sponsor ID': b.sponsor_id, 'Total Visas': b.total_quantity,
       'In Process': chasingCount(b.id), 'Stamped': stampedCount(b.id), 'Balance': balanceOf(b),
       'Expiry': b.expiry_date || '',
     }));
@@ -405,7 +407,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                       {b.nationality && <span className="text-xs text-slate-400">· {b.nationality}</span>}
                     </div>
                     <p className="text-xs text-slate-400 mt-1">
-                      {b.sponsor && `${b.sponsor} · `}Expires {fmt(b.expiry_date)}
+                      {b.sponsor && `${b.sponsor}${b.sponsor_id ? ` (${b.sponsor_id})` : ''} · `}Expires {fmt(b.expiry_date)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -553,8 +555,10 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                 <input value={f.profession} onChange={e => setField('profession', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
               <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Nationality</label>
                 <input value={f.nationality} onChange={e => setField('nationality', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-              <div className="space-y-1.5 col-span-2"><label className="text-sm font-medium text-slate-700">Sponsor</label>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Sponsor Name</label>
                 <input value={f.sponsor} onChange={e => setField('sponsor', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+              <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Sponsor ID</label>
+                <input value={f.sponsor_id} onChange={e => setField('sponsor_id', e.target.value)} placeholder="e.g. 7001234567" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
               <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Issue Date</label>
                 <input type="date" value={f.issue_date} onChange={e => setField('issue_date', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
               <div className="space-y-1.5"><label className="text-sm font-medium text-slate-700">Expiry Date</label>
@@ -576,7 +580,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Allocate Person</h2>
-                <p className="text-xs text-slate-400">{allocBlock.authority_number || allocBlock.profession} · {balanceOf(allocBlock)} left</p>
+                <p className="text-xs text-slate-400">{allocBlock.authority_number || allocBlock.profession}{allocBlock.nationality ? ` · ${allocBlock.nationality}` : ''} · {balanceOf(allocBlock)} left</p>
               </div>
               <button onClick={() => setAllocBlock(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
             </div>
@@ -584,7 +588,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">Visa Block</label>
                 <select value={allocBlock.id} onChange={e => { const b = blocks.find(x => x.id === e.target.value); if (b) setAllocBlock(b); }} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  {blocks.map(b => <option key={b.id} value={b.id}>{b.authority_number || b.profession || 'Visa'} — {balanceOf(b)} left / {b.total_quantity}</option>)}
+                  {blocks.map(b => <option key={b.id} value={b.id}>{b.authority_number || b.profession || 'Visa'}{b.nationality ? ` · ${b.nationality}` : ''}{b.visa_type ? ` · ${b.visa_type}` : ''} — {balanceOf(b)} left / {b.total_quantity}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
@@ -601,7 +605,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">Visa Type</label>
-                  <input value={allocType} onChange={e => setAllocType(e.target.value)} placeholder={allocBlock.visa_type || 'Work Visa'} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <div className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 text-slate-600">{allocBlock.visa_type || 'Work Visa'}</div>
                 </div>
               </div>
               <div className="bg-sky-50 border border-sky-100 rounded-xl px-3 py-2 text-xs text-sky-700">
