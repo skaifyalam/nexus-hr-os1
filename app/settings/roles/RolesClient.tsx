@@ -101,6 +101,16 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
     setRoles(p => p.filter(r => r.id !== id));
   };
 
+  // Rename role
+  const [renameRole, setRenameRole] = useState<any>(null);
+  const [roleNewName, setRoleNewName] = useState('');
+  const saveRoleName = async () => {
+    if (!renameRole || !roleNewName.trim()) return;
+    await supabase.from('custom_roles').update({ name: roleNewName.trim() }).eq('id', renameRole.id);
+    setRoles(p => p.map(r => r.id === renameRole.id ? { ...r, name: roleNewName.trim() } : r));
+    setRenameRole(null);
+  };
+
   // ─── Add user (email + password) ───
   const [inviteOpen, setInviteOpen] = useState(false);
   const [iEmail, setIEmail] = useState('');
@@ -139,6 +149,36 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
   // ─── Reset password ───
   const [resetUser, setResetUser] = useState<any>(null);
   const [newPw, setNewPw] = useState('');
+
+  // Edit user name
+  const [editUser, setEditUser] = useState<any>(null);
+  const [editName, setEditName] = useState('');
+  const [editMsg, setEditMsg] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const saveUserName = async () => {
+    if (!editUser) return;
+    setEditSaving(true); setEditMsg('');
+    const { error } = await supabase.from('profiles').update({ full_name: editName.trim() }).eq('id', editUser.id);
+    if (error) { setEditMsg(error.message); setEditSaving(false); return; }
+    setProfiles(p => p.map(u => u.id === editUser.id ? { ...u, full_name: editName.trim() } : u));
+    setEditSaving(false);
+    setEditUser(null);
+  };
+
+  // Remove a user (deletes their auth account + profile via admin API)
+  const removeUser = async (u: any) => {
+    if (!confirm(`Remove ${u.full_name || u.email}? This deletes their account and they can no longer log in.`)) return;
+    try {
+      const res = await fetch('/api/delete-user', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: u.id }),
+      });
+      const raw = await res.text();
+      let json: any = {}; try { json = raw ? JSON.parse(raw) : {}; } catch {}
+      if (!res.ok) { alert(json.error || 'Could not remove the user.'); return; }
+      setProfiles(p => p.filter(x => x.id !== u.id));
+    } catch (e: any) { alert(e.message || 'Could not remove the user.'); }
+  };
   const [resetMsg, setResetMsg] = useState('');
   const [resetting, setResetting] = useState(false);
 
@@ -231,9 +271,15 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {u.role !== 'super_admin' && (
-                        <button onClick={() => { setResetUser(u); setNewPw(''); setResetMsg(''); }} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Key size={12} />Reset password</button>
-                      )}
+                      <div className="inline-flex items-center gap-1">
+                        <button onClick={() => { setEditUser(u); setEditName(u.full_name || ''); setEditMsg(''); }} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Edit2 size={12} />Edit</button>
+                        {u.role !== 'super_admin' && (
+                          <button onClick={() => { setResetUser(u); setNewPw(''); setResetMsg(''); }} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Key size={12} />Password</button>
+                        )}
+                        {u.role !== 'super_admin' && (
+                          <button onClick={() => removeUser(u)} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-red-50"><Trash2 size={12} />Remove</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -266,7 +312,10 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                         <p className="text-xs text-slate-400">{profiles.filter(u => u.custom_role_id === r.id).length} user(s)</p>
                       </div>
                     </div>
-                    <button onClick={() => deleteRole(r.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button onClick={() => { setRenameRole(r); setRoleNewName(r.name); }} className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-300 hover:text-indigo-600"><Edit2 size={13} /></button>
+                      <button onClick={() => deleteRole(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500"><Trash2 size={13} /></button>
+                    </div>
                   </div>
                   {r.description && <p className="text-xs text-slate-500 mt-3">{r.description}</p>}
                   <button onClick={() => openPerms(r)} className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
@@ -343,6 +392,54 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
       )}
 
       {/* Reset password modal */}
+      {/* Rename role modal */}
+      {renameRole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setRenameRole(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-900">Rename Role</h2>
+              <button onClick={() => setRenameRole(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Role name</label>
+                <input value={roleNewName} onChange={e => setRoleNewName(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setRenameRole(null)} className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+              <button onClick={saveRoleName} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit user name modal */}
+      {editUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setEditUser(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-900">Edit User</h2>
+              <button onClick={() => setEditUser(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-400">{editUser.email}</p>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">Full name</label>
+                <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Full name" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              {editMsg && <p className="text-xs text-red-500">{editMsg}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setEditUser(null)} className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+              <button onClick={saveUserName} disabled={editSaving} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{editSaving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {resetUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setResetUser(null)} />
