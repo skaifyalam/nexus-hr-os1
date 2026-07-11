@@ -13,10 +13,15 @@ export async function loadPeopleForPicker(companyId: string, sectionKey: string)
 
   const keep = new Set<string>();
   (fields || []).forEach((f: any) => {
-    if (f.is_id_field || /name|code|id|passport|iqama|recruitment|national/i.test(f.field_label)) {
+    if (f.is_id_field || /name|code|id|passport|iqama|recruitment|national|designation|position|title/i.test(f.field_label)) {
       keep.add(f.field_key);
     }
   });
+  // Fallback: if detection kept too few fields (e.g. after a fresh upload where
+  // is_id_field wasn't set), keep the first several fields so search still works.
+  if (keep.size < 2) {
+    (fields || []).slice(0, 6).forEach((f: any) => keep.add(f.field_key));
+  }
 
   let people: any[] = [];
   for (let from = 0; ; from += 1000) {

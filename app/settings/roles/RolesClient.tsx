@@ -151,17 +151,30 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
   const [resetUser, setResetUser] = useState<any>(null);
   const [newPw, setNewPw] = useState('');
 
-  // Edit user name
+  // Edit user (name + role + projects)
   const [editUser, setEditUser] = useState<any>(null);
   const [editName, setEditName] = useState('');
+  const [editRoleId, setEditRoleId] = useState('');
+  const [editProjects, setEditProjects] = useState<string[]>([]);
   const [editMsg, setEditMsg] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const openEditUser = (u: any) => {
+    setEditUser(u);
+    setEditName(u.full_name || '');
+    setEditRoleId(u.custom_role_id || '');
+    setEditProjects(u.project_scope || []);
+    setEditMsg('');
+  };
   const saveUserName = async () => {
     if (!editUser) return;
     setEditSaving(true); setEditMsg('');
-    const { error } = await supabase.from('profiles').update({ full_name: editName.trim() }).eq('id', editUser.id);
+    const { error } = await supabase.from('profiles').update({
+      full_name: editName.trim(),
+      custom_role_id: editUser.role === 'super_admin' ? editUser.custom_role_id : (editRoleId || null),
+      project_scope: editProjects,
+    }).eq('id', editUser.id);
     if (error) { setEditMsg(error.message); setEditSaving(false); return; }
-    setProfiles(p => p.map(u => u.id === editUser.id ? { ...u, full_name: editName.trim() } : u));
+    setProfiles(p => p.map(u => u.id === editUser.id ? { ...u, full_name: editName.trim(), custom_role_id: editUser.role === 'super_admin' ? u.custom_role_id : (editRoleId || null), project_scope: editProjects } : u));
     setEditSaving(false);
     setEditUser(null);
   };
@@ -221,19 +234,8 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
 
       {tab === 'users' && (
         <div>
-          {/* Project field setting */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm font-medium text-slate-700">Project/Site field:</span>
-              <select value={projField} onChange={e => saveProjectField(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">— None (no project scoping) —</option>
-                {empFields.map((f: any) => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
-              </select>
-              <span className="text-xs text-slate-400">Pick which employee field represents project/site. Then scope users to specific projects below.</span>
-            </div>
-          </div>
           <div className="flex justify-end mb-4">
-            <button onClick={() => { setInviteMsg(''); setIEmail(''); setIPassword(''); setIRoleId(''); setInviteOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Mail size={14} />Add User</button>
+            <button onClick={() => { setInviteMsg(''); setIEmail(''); setIPassword(''); setIRoleId(''); setIProjects([]); setInviteOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Mail size={14} />Add User</button>
           </div>
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <table className="w-full">
@@ -263,17 +265,15 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                     <td className="px-4 py-3">
                       {u.role === 'super_admin' ? (
                         <span className="text-xs text-slate-400">All projects</span>
-                      ) : !projField ? (
-                        <span className="text-xs text-slate-300">—</span>
                       ) : (u.project_scope?.length > 0) ? (
-                        <button onClick={() => openScope(u)} className="text-xs text-indigo-600 hover:underline">{u.project_scope.length} project(s)</button>
+                        <span className="text-xs text-slate-600">{u.project_scope.length} project(s)</span>
                       ) : (
-                        <button onClick={() => openScope(u)} className="text-xs text-slate-400 hover:text-indigo-600">All — restrict</button>
+                        <span className="text-xs text-slate-400">All projects</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
-                        <button onClick={() => { setEditUser(u); setEditName(u.full_name || ''); setEditMsg(''); }} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Edit2 size={12} />Edit</button>
+                        <button onClick={() => openEditUser(u)} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Edit2 size={12} />Edit</button>
                         {u.role !== 'super_admin' && (
                           <button onClick={() => { setResetUser(u); setNewPw(''); setResetMsg(''); }} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded-lg hover:bg-indigo-50"><Key size={12} />Password</button>
                         )}
@@ -449,6 +449,33 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                 <label className="text-sm font-medium text-slate-700">Full name</label>
                 <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Full name" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
+              {editUser.role !== 'super_admin' && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Role</label>
+                  <select value={editRoleId} onChange={e => setEditRoleId(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">No role</option>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+              )}
+              {editUser.role !== 'super_admin' && projectValues.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Project access</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" onClick={() => setEditProjects([])} className={`px-2.5 py-1 rounded-lg border text-xs ${editProjects.length === 0 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>All projects</button>
+                    {projectValues.map(v => {
+                      const on = editProjects.includes(v);
+                      return (
+                        <button key={v} type="button" onClick={() => setEditProjects(p => on ? p.filter(x => x !== v) : [...p, v])}
+                          className={`px-2.5 py-1 rounded-lg border text-xs ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>
+                          {on ? '✓ ' : ''}{v}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-400">"All projects" = full access. Or pick specific projects to restrict them.</p>
+                </div>
+              )}
               {editMsg && <p className="text-xs text-red-500">{editMsg}</p>}
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">

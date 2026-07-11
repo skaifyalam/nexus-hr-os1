@@ -23,13 +23,42 @@ export async function getProjectScope(profile: any, sectionKey: string): Promise
   if (!scope || scope.length === 0) return null; // no restriction
 
   const supabase = createServerClient();
+  // Prefer an explicitly designated field if set.
   const { data: company } = await supabase.from('company_profile')
     .select('project_field_key, candidate_project_field_key')
     .eq('id', profile.company_id).maybeSingle();
-  const field = sectionKey === 'candidate'
+  let field = sectionKey === 'candidate'
     ? (company?.candidate_project_field_key || company?.project_field_key)
     : company?.project_field_key;
-  if (!field) return null; // company hasn't designated a project field
+
+  // Auto-detect: if no field designated, find the employee field whose values
+  // best match the assigned project names.
+  if (!field) {
+    const { data: fields } = await supabase.from('section_field_configs')
+      .select('field_key, field_label').eq('company_id', profile.company_id).eq('section_key', sectionKey);
+    if (fields && fields.length > 0) {
+      // Prefer a field literally named project/site/location
+      const named = fields.find((f: any) => /project|site|location/i.test(f.field_label));
+      if (named) field = named.field_key;
+      else {
+        // Otherwise, sample records and find the field whose values overlap the scope
+        const { data: sample } = await supabase.from('section_records').select('data')
+          .eq('company_id', profile.company_id).eq('section_key', sectionKey).limit(200);
+        const scopeLower = scope.map(s => String(s).toLowerCase());
+        let best: string | null = null; let bestHits = 0;
+        for (const f of fields) {
+          let hits = 0;
+          (sample || []).forEach((r: any) => {
+            const v = r.data?.[f.field_key];
+            if (v && scopeLower.includes(String(v).toLowerCase())) hits++;
+          });
+          if (hits > bestHits) { bestHits = hits; best = f.field_key; }
+        }
+        if (best) field = best;
+      }
+    }
+  }
+  if (!field) return null; // couldn't determine a project field → no filtering
   return { field, values: scope };
 }
 
