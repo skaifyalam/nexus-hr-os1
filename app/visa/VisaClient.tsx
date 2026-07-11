@@ -149,17 +149,21 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
 
   const activeAllocs = (blockId: string) => allocations.filter(a => a.visa_block_id === blockId && a.stage !== 'cancelled' && a.stage !== 'missed');
   const stampedCount = (blockId: string) => allocations.filter(a => a.visa_block_id === blockId && a.stage === 'stamped').length;
-  // True remaining = quantity - stamped (over-allocation is deliberate; only stamping consumes a visa)
-  const balanceOf = (b: any) => (b.total_quantity || 0) - stampedCount(b.id);
-  // Over-allocation indicator: how many candidates are chasing this block
+  // Allocated = all active allocations (including stamped). Balance now reflects allocation.
+  const allocatedCount = (blockId: string) => activeAllocs(blockId).length;
+  // Available = total minus allocated (intuitive). Can go negative when over-allocated.
+  const balanceOf = (b: any) => (b.total_quantity || 0) - allocatedCount(b.id);
+  // In process = allocated but not yet stamped (in hand, being worked on)
   const chasingCount = (blockId: string) => activeAllocs(blockId).filter(a => a.stage !== 'stamped').length;
+  const isOverAllocated = (b: any) => allocatedCount(b.id) > (b.total_quantity || 0);
+  const overBy = (b: any) => Math.max(0, allocatedCount(b.id) - (b.total_quantity || 0));
 
   const totals = useMemo(() => {
     const total = blocks.reduce((s, b) => s + (b.total_quantity || 0), 0);
     const stamped = allocations.filter(a => a.stage === 'stamped').length;
-    const inProcess = allocations.filter(a => a.stage !== 'cancelled' && a.stage !== 'missed' && a.stage !== 'stamped').length;
-    const available = total - stamped;
-    // Breakdown by visa type/category
+    const allocated = allocations.filter(a => a.stage !== 'cancelled' && a.stage !== 'missed').length;
+    const inProcess = allocated - stamped;
+    const available = total - allocated;
     const byType: Record<string, { total: number; available: number }> = {};
     blocks.forEach(b => {
       const t = b.visa_type || 'Other';
@@ -167,7 +171,7 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
       byType[t].total += (b.total_quantity || 0);
       byType[t].available += balanceOf(b);
     });
-    return { total, stamped, inProcess, available, byType };
+    return { total, stamped, allocated, inProcess, available, byType };
   }, [blocks, allocations]);
 
   // ─── New visa block ───
@@ -386,9 +390,9 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
           <p className="text-2xl font-bold text-slate-900">{totals.total}</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-1"><Users size={15} className="text-amber-500" /><span className="text-xs font-medium text-slate-500">In Process</span></div>
-          <p className="text-2xl font-bold text-amber-600">{totals.inProcess}</p>
-          <p className="text-[11px] text-slate-400">being processed, not yet stamped</p>
+          <div className="flex items-center gap-2 mb-1"><Users size={15} className="text-amber-500" /><span className="text-xs font-medium text-slate-500">Allocated</span></div>
+          <p className="text-2xl font-bold text-amber-600">{totals.allocated}</p>
+          <p className="text-[11px] text-slate-400">{totals.inProcess} in process · {totals.stamped} stamped</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-1"><CheckCircle2 size={15} className="text-sky-500" /><span className="text-xs font-medium text-slate-500">Stamped</span></div>
@@ -397,7 +401,8 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-1"><CheckCircle2 size={15} className="text-emerald-500" /><span className="text-xs font-medium text-slate-500">Available Balance</span></div>
-          <p className="text-2xl font-bold text-emerald-600">{totals.available}</p>
+          <p className={`text-2xl font-bold ${totals.available < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{totals.available}</p>
+          {totals.available < 0 && <p className="text-[11px] text-red-500">over-allocated</p>}
         </div>
       </div>
 
@@ -441,12 +446,21 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="text-right">
-                      <p className={`text-lg font-bold ${bal <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{bal}<span className="text-xs text-slate-400 font-normal"> / {b.total_quantity}</span></p>
-                      <p className="text-xs text-emerald-600 font-medium">{bal} visa{bal === 1 ? '' : 's'} left</p>
-                      {chasingCount(b.id) > 0 && <p className="text-[11px] text-amber-600">{chasingCount(b.id)} in process</p>}
+                      <p className={`text-lg font-bold ${bal < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{bal}<span className="text-xs text-slate-400 font-normal"> / {b.total_quantity}</span></p>
+                      <p className="text-xs text-slate-400">available</p>
+                      {isOverAllocated(b) && <p className="text-[11px] text-red-500 font-medium">⚠ over-allocated by {overBy(b)}</p>}
                     </div>
                     <button onClick={() => deleteBlock(b.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
                   </div>
+                </div>
+
+                {/* Clear breakdown counts */}
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1 text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1"><span className="text-slate-400">Total</span><span className="font-semibold text-slate-700">{b.total_quantity}</span></span>
+                  <span className="inline-flex items-center gap-1 text-xs bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1"><span className="text-amber-600">Allocated</span><span className="font-semibold text-amber-700">{allocatedCount(b.id)}</span></span>
+                  <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1"><span className="text-emerald-600">Available</span><span className="font-semibold text-emerald-700">{bal}</span></span>
+                  <span className="inline-flex items-center gap-1 text-xs bg-sky-50 border border-sky-100 rounded-lg px-2.5 py-1"><span className="text-sky-600">Stamped</span><span className="font-semibold text-sky-700">{stampedCount(b.id)}</span></span>
+                  <span className="inline-flex items-center gap-1 text-xs bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-1"><span className="text-violet-600">In process</span><span className="font-semibold text-violet-700">{chasingCount(b.id)}</span></span>
                 </div>
 
                 {/* Allocated people */}

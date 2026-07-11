@@ -132,10 +132,13 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
       // Build a candidate record using the candidate section's name/id fields.
       const candNameField = candFields.find((f: any) => /name/i.test(f.field_label))?.field_key;
       const data: any = {};
+      // Always store the name — under the detected name field if available,
+      // otherwise under a generic 'name' key so it's never blank in the pipeline.
       if (candNameField) data[candNameField] = remobFor.person_name;
-      // Also copy any obvious code/id field
+      else data['name'] = remobFor.person_name;
       const candCodeField = candFields.find((f: any) => f.is_id_field || /code|id/i.test(f.field_label))?.field_key;
       if (candCodeField && remobFor.person_code) data[candCodeField] = remobFor.person_code;
+      else if (remobFor.person_code) data['code'] = remobFor.person_code;
       const { data: cand } = await supabase.from('section_records').insert({
         company_id: companyId, section_key: 'candidate',
         record_id: remobFor.person_code || remobFor.person_name,
