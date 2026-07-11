@@ -1,16 +1,86 @@
 'use client';
 import { useState } from 'react';
-import { Plus, Edit2, Trash2, X, AlertCircle, Building2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, AlertCircle, Building2, Upload, Download, Loader } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import * as XLSX from 'xlsx';
 
 export default function AgenciesSettingsClient({ initialAgencies, candCounts, companyId }: { initialAgencies: any[]; candCounts: any[]; companyId: string }) {
   const [agencies, setAgencies] = useState(initialAgencies);
   const [modal, setModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
   const [form, setForm] = useState({ name: '', country: '', contact_name: '', contact_email: '', contact_phone: '', status: 'active' });
   const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
   const supabase = createClient();
 
   const countFor = (id: string) => candCounts.filter((c) => c.agency_id === id).length;
+
+  // Export all agencies to Excel
+  const exportAgencies = () => {
+    const rows = agencies.map(a => ({
+      'Agency Name': a.name || '', 'Country': a.country || '',
+      'Contact Name': a.contact_name || '', 'Contact Email': a.contact_email || '',
+      'Contact Phone': a.contact_phone || '', 'Status': a.status || 'active',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Agency Name': '', 'Country': '', 'Contact Name': '', 'Contact Email': '', 'Contact Phone': '', 'Status': '' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Agencies');
+    XLSX.writeFile(wb, `agencies-${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // Import agencies from Excel (upsert by name — updates existing, adds new)
+  const importAgencies = (file: File) => {
+    setImporting(true); setImportMsg('Reading…');
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'binary' });
+        const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+        if (rows.length === 0) { setImportMsg('No rows found in the file.'); setImporting(false); return; }
+        // Flexible column matching
+        const col = (row: any, names: string[]) => {
+          const keys = Object.keys(row);
+          for (const n of names) {
+            const k = keys.find(k => k.toLowerCase().replace(/[^a-z]/g, '') === n.toLowerCase().replace(/[^a-z]/g, ''));
+            if (k) return row[k];
+          }
+          return '';
+        };
+        const existingByName = new Map(agencies.map(a => [String(a.name).trim().toLowerCase(), a]));
+        const toInsert: any[] = []; const toUpdate: any[] = [];
+        for (const row of rows) {
+          const name = String(col(row, ['agency name', 'name', 'agency'])).trim();
+          if (!name) continue;
+          const rec = {
+            name, country: String(col(row, ['country'])).trim(),
+            contact_name: String(col(row, ['contact name', 'contact'])).trim(),
+            contact_email: String(col(row, ['contact email', 'email'])).trim(),
+            contact_phone: String(col(row, ['contact phone', 'phone'])).trim(),
+            status: String(col(row, ['status'])).trim().toLowerCase() || 'active',
+            company_id: companyId,
+          };
+          const existing = existingByName.get(name.toLowerCase());
+          if (existing) toUpdate.push({ id: existing.id, ...rec });
+          else toInsert.push(rec);
+        }
+        let added = 0, updated = 0;
+        if (toInsert.length > 0) {
+          const { data } = await supabase.from('agencies').insert(toInsert).select();
+          if (data) { setAgencies(p => [...p, ...data]); added = data.length; }
+        }
+        for (const u of toUpdate) {
+          const { id, ...fields } = u;
+          const { data } = await supabase.from('agencies').update(fields).eq('id', id).select().single();
+          if (data) { setAgencies(p => p.map(a => a.id === id ? data : a)); updated++; }
+        }
+        setImportMsg(`✓ Imported ${added} new, updated ${updated} existing.`);
+      } catch (err: any) {
+        setImportMsg(`Import failed: ${err.message}`);
+      }
+      setImporting(false);
+    };
+    reader.readAsBinaryString(file);
+  };
 
   const blank = { name: '', country: '', contact_name: '', contact_email: '', contact_phone: '', status: 'active' };
 
@@ -65,10 +135,23 @@ export default function AgenciesSettingsClient({ initialAgencies, candCounts, co
           <h1 className="text-2xl font-bold text-slate-900">Agencies</h1>
           <p className="text-sm text-slate-500 mt-0.5">Manage overseas recruitment agencies</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200">
-          <Plus size={14} /> Add Agency
-        </button>
+        <div className="flex items-center gap-2">
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" id="agency-import" onChange={e => e.target.files?.[0] && importAgencies(e.target.files[0])} />
+          <button onClick={() => document.getElementById('agency-import')?.click()} disabled={importing} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 disabled:opacity-40">
+            {importing ? <Loader size={14} className="animate-spin" /> : <Upload size={14} />} Import
+          </button>
+          <button onClick={exportAgencies} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50">
+            <Download size={14} /> Export
+          </button>
+          <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200">
+            <Plus size={14} /> Add Agency
+          </button>
+        </div>
       </div>
+
+      {importMsg && (
+        <div className={`text-sm p-3 rounded-xl mb-4 ${importMsg.startsWith('✓') ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-600'}`}>{importMsg}</div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl mb-4">
