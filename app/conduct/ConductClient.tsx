@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Plus, X, AlertTriangle, LogOut, Download, ShieldAlert, CheckCircle2, XCircle, Clock, Upload, Loader } from 'lucide-react';
+import { Plus, X, AlertTriangle, LogOut, Download, ShieldAlert, CheckCircle2, XCircle, Clock, Upload, Loader, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PersonPicker from '@/components/PersonPicker';
 import { startApproval } from '@/lib/approvals';
@@ -97,6 +97,48 @@ export default function ConductClient({ initialConduct, initialExits, employees,
     setXPerson(''); setXType('resignation'); setXReason(''); setXLwd(''); setXNotice(''); setXOpen(false);
   };
   const delExit = async (id: string) => { await supabase.from('exit_records').delete().eq('id', id); setExits(p => p.filter(x => x.id !== id)); };
+
+  // ─── Remobilization ───
+  const [remobFor, setRemobFor] = useState<any>(null);
+  const [remobVisaType, setRemobVisaType] = useState('Work Visa');
+  const [remobHowLeft, setRemobHowLeft] = useState('exited');
+  const [remobSaving, setRemobSaving] = useState(false);
+  const [remobMsg, setRemobMsg] = useState('');
+
+  const openRemobilize = (exitRec: any) => {
+    setRemobFor(exitRec);
+    setRemobVisaType('Work Visa');
+    setRemobHowLeft('exited');
+    setRemobMsg('');
+  };
+
+  // Decision tree: visa type + how they left → path
+  const decidePath = (visaType: string, howLeft: string): 'new_visa' | 'qiwa_transfer' => {
+    // Work visa + local transfer → QIWA transfer. Everything else → new visa.
+    if (visaType === 'Work Visa' && howLeft === 'local_transfer') return 'qiwa_transfer';
+    return 'new_visa';
+  };
+
+  const confirmRemobilize = async () => {
+    if (!remobFor) return;
+    setRemobSaving(true); setRemobMsg('');
+    const path = decidePath(remobVisaType, remobHowLeft);
+    const { error } = await supabase.from('remobilizations').insert({
+      company_id: companyId,
+      exit_record_id: remobFor.id,
+      person_record_id: remobFor.person_record_id,
+      person_name: remobFor.person_name,
+      person_code: remobFor.person_code,
+      original_visa_type: remobVisaType,
+      how_left: remobHowLeft,
+      path,
+      status: 'pending',
+    });
+    if (error) { setRemobMsg(error.message); setRemobSaving(false); return; }
+    setRemobMsg(`✓ Remobilization started. Path: ${path === 'qiwa_transfer' ? 'QIWA Transfer' : 'New Visa'}. It now shows as pending in Visa Management.`);
+    setRemobSaving(false);
+    setTimeout(() => { setRemobFor(null); setRemobMsg(''); }, 2500);
+  };
   const toggleChecklistItem = async (rec: any, idx: number) => {
     const checklist = rec.checklist.map((c: any, i: number) => i === idx ? { ...c, done: !c.done } : c);
     await supabase.from('exit_records').update({ checklist }).eq('id', rec.id);
@@ -262,6 +304,9 @@ export default function ConductClient({ initialConduct, initialExits, employees,
                       {r.person_record_id && activeConfig?.active_field_key && r.status !== 'completed' && (
                         <button onClick={() => markInactiveNow(r)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:gap-2 transition-all"><LogOut size={12} />Mark employee inactive</button>
                       )}
+                      {r.person_record_id && (
+                        <button onClick={() => openRemobilize(r)} className="mt-2 ml-3 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:gap-2 transition-all"><RotateCcw size={12} />Remobilize</button>
+                      )}
                     </div>
                     <button onClick={() => delExit(r.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><X size={13} /></button>
                   </div>
@@ -349,6 +394,49 @@ export default function ConductClient({ initialConduct, initialExits, employees,
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
               <button onClick={() => setXOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={addExit} disabled={!xPerson} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">Save & Route</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Remobilize modal */}
+      {remobFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setRemobFor(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Remobilize {remobFor.person_name}</h2>
+                <p className="text-xs text-slate-400">Bring this person back — the path depends on their situation</p>
+              </div>
+              <button onClick={() => setRemobFor(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">What visa were they originally on?</label>
+                <select value={remobVisaType} onChange={e => setRemobVisaType(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="Work Visa">Work Visa</option>
+                  <option value="Temporary Visa">Temporary Visa</option>
+                  <option value="Business Visa">Business Visa</option>
+                  <option value="Visit Visa">Visit Visa</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">How did they leave?</label>
+                <select value={remobHowLeft} onChange={e => setRemobHowLeft(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="exited">Exited the country</option>
+                  <option value="local_transfer">Local transfer (to another company)</option>
+                </select>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5 text-xs text-indigo-700">
+                {decidePath(remobVisaType, remobHowLeft) === 'qiwa_transfer'
+                  ? '→ Path: QIWA Transfer. This person will show as QIWA-pending in Visa Management.'
+                  : '→ Path: New Visa. This person will show as visa-pending in Visa Management.'}
+              </div>
+              {remobMsg && <p className={`text-xs ${remobMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{remobMsg}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setRemobFor(null)} className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+              <button onClick={confirmRemobilize} disabled={remobSaving} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{remobSaving ? 'Starting…' : 'Start Remobilization'}</button>
             </div>
           </div>
         </div>
