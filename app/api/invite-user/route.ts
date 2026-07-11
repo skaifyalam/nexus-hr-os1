@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { email, role, agency_id, custom_role_id } = body;
+    const { email, role, agency_id, custom_role_id, project_scope } = body;
 
     if (!email || !email.trim()) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
@@ -88,6 +88,7 @@ export async function POST(req: Request) {
         role: role || 'employee',
         agency_id: agency_id || null,
         custom_role_id: custom_role_id || null,
+        project_scope: Array.isArray(project_scope) ? project_scope : [],
       }, { onConflict: 'id' });
       if (!upErr) linked = true; else lastErr = upErr;
     }

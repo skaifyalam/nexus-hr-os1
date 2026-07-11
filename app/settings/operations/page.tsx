@@ -15,8 +15,8 @@ export default async function OperationsSettingsPage() {
     redirect('/dashboard');
   }
 
-  const { data: operations } = await supabase.from('operations').select('*').order('created_at');
-  const { data: projects } = await supabase.from('projects').select('*').order('created_at');
+  const { data: operations } = await supabase.from('operations').select('*').eq('company_id', profile?.company_id).order('created_at');
+  const { data: projects } = await supabase.from('projects').select('*').eq('company_id', profile?.company_id).order('created_at');
   const { data: employeeCounts } = await supabase.from('employees').select('operation_id, current_project_id');
 
   return (
@@ -25,6 +25,7 @@ export default async function OperationsSettingsPage() {
         initialOperations={operations || []}
         initialProjects={projects || []}
         employeeCounts={employeeCounts || []}
+        companyId={profile?.company_id || ''}
       />
     </Shell>
   );

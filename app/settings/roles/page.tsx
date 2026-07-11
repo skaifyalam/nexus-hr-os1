@@ -19,19 +19,12 @@ export default async function RolesPage() {
     supabase.from('company_profile').select('project_field_key').eq('id', companyId).maybeSingle(),
   ]);
 
-  // Distinct values of the chosen project field, for scope assignment
-  let projectValues: string[] = [];
-  if (company?.project_field_key) {
-    let recs: any[] = [];
-    for (let from = 0; ; from += 1000) {
-      const { data } = await supabase.from('section_records').select('data')
-        .eq('company_id', companyId).eq('section_key', 'employee').range(from, from + 999);
-      if (!data || data.length === 0) break;
-      recs = recs.concat(data);
-      if (data.length < 1000) break;
-    }
-    projectValues = Array.from(new Set(recs.map(r => r.data?.[company.project_field_key!]).filter(Boolean))).sort().slice(0, 100);
-  }
+  // Projects come from the dedicated Projects list (Countries & Projects admin)
+  const { data: projectRows } = await supabase.from('projects')
+    .select('project_name, project_code').eq('company_id', companyId).order('project_name');
+  const projectValues: string[] = Array.from(new Set(
+    (projectRows || []).map((p: any) => p.project_name).filter(Boolean)
+  ));
 
   return (
     <Shell current="/settings/roles" profile={profile} sections={sections} companyId={companyId}>

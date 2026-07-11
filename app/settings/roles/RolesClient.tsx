@@ -116,6 +116,7 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
   const [iEmail, setIEmail] = useState('');
   const [iPassword, setIPassword] = useState('');
   const [iRoleId, setIRoleId] = useState('');
+  const [iProjects, setIProjects] = useState<string[]>([]); // empty = all projects
   const [inviting, setInviting] = useState(false);
   const [inviteMsg, setInviteMsg] = useState('');
 
@@ -125,7 +126,7 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
     try {
       const res = await fetch('/api/invite-user', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: iEmail.trim(), password: iPassword, role: 'employee', custom_role_id: iRoleId || null }),
+        body: JSON.stringify({ email: iEmail.trim(), password: iPassword, role: 'employee', custom_role_id: iRoleId || null, project_scope: iProjects }),
       });
       const raw = await res.text();
       let json: any = {};
@@ -380,7 +381,25 @@ export default function RolesClient({ initialRoles, initialProfiles, companyId, 
                   {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
-              <p className="text-xs text-slate-400">Share the username and password with them — they log in with those. They can change the password after logging in.</p>
+              {projectValues.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Project access</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" onClick={() => setIProjects([])} className={`px-2.5 py-1 rounded-lg border text-xs ${iProjects.length === 0 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>All projects</button>
+                    {projectValues.map(v => {
+                      const on = iProjects.includes(v);
+                      return (
+                        <button key={v} type="button" onClick={() => setIProjects(p => on ? p.filter(x => x !== v) : [...p, v])}
+                          className={`px-2.5 py-1 rounded-lg border text-xs ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>
+                          {on ? '✓ ' : ''}{v}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-400">Leave "All projects" selected for full access, or pick specific projects.</p>
+                </div>
+              )}
+              <p className="text-xs text-slate-400">Share the email and password with them — they log in with those. They can change the password after logging in.</p>
               {inviteMsg && inviteMsg.trim() && inviteMsg.trim() !== '{}' && <p className={`text-xs ${inviteMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{inviteMsg}</p>}
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">

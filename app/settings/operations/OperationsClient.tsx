@@ -4,8 +4,8 @@ import { Plus, Trash2, Edit2, X, Globe, Briefcase, Users, AlertCircle } from 'lu
 import { createClient } from '@/lib/supabase/client';
 
 export default function OperationsClient({
-  initialOperations, initialProjects, employeeCounts,
-}: { initialOperations: any[]; initialProjects: any[]; employeeCounts: any[] }) {
+  initialOperations, initialProjects, employeeCounts, companyId = '',
+}: { initialOperations: any[]; initialProjects: any[]; employeeCounts: any[]; companyId?: string }) {
   const [operations, setOperations] = useState(initialOperations);
   const [projects, setProjects] = useState(initialProjects);
   const [opModal, setOpModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
@@ -29,7 +29,7 @@ export default function OperationsClient({
       if (error) { setError(error.message); return; }
       setOperations((p) => p.map((o) => (o.id === opModal.editing ? data : o)));
     } else {
-      const { data, error } = await supabase.from('operations').insert(opForm).select().single();
+      const { data, error } = await supabase.from('operations').insert({ ...opForm, company_id: companyId }).select().single();
       if (error) { setError(error.message); return; }
       setOperations((p) => [...p, data]);
     }
@@ -57,7 +57,7 @@ export default function OperationsClient({
       if (error) { setError(error.message); return; }
       setProjects((p) => p.map((x) => (x.id === projModal.editing ? data : x)));
     } else {
-      const { data, error } = await supabase.from('projects').insert(projForm).select().single();
+      const { data, error } = await supabase.from('projects').insert({ ...projForm, company_id: companyId }).select().single();
       if (error) { setError(error.message); return; }
       setProjects((p) => [...p, data]);
     }
