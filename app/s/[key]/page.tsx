@@ -60,6 +60,15 @@ export default async function SectionPage({ params }: { params: { key: string } 
     return { ...r, data: d };
   });
 
+  // For the recruitment/candidate section, also load remobilizations for a tracking tab.
+  let remobs: any[] = [];
+  if (params.key === 'candidate') {
+    const { data: rmb } = await supabase.from('remobilizations')
+      .select('*').eq('company_id', profile?.company_id)
+      .neq('status', 'cancelled').order('created_at', { ascending: false });
+    remobs = rmb || [];
+  }
+
   return (
     <Shell current={`/s/${params.key}`} profile={profile} sections={sections} companyId={profile?.company_id || ''}>
       <UniversalSection
@@ -67,6 +76,7 @@ export default async function SectionPage({ params }: { params: { key: string } 
         initialFields={visibleFields}
         initialRecords={safeRecords}
         initialStageFlows={stageFlows || []}
+        remobs={remobs}
         companyId={profile?.company_id || ''}
         userEmail={user?.email || ''}
       />

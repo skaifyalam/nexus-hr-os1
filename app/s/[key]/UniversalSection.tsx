@@ -2,19 +2,19 @@
 import { useState, useRef, useMemo } from 'react';
 import {
   Plus, X, Search, Upload, Loader, Download, LayoutGrid, Table2,
-  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock, User,
+  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock, User, RotateCcw,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], companyId, userEmail = '' }: {
-  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; companyId: string; userEmail?: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
   const [search, setSearch] = useState('');
-  const [view, setView] = useState<'table' | 'kanban'>('table');
+  const [view, setView] = useState<'table' | 'kanban' | 'remob'>('table');
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
@@ -574,6 +574,9 @@ export default function UniversalSection({ section, initialFields, initialRecord
           <div className="flex bg-slate-100 rounded-xl p-1">
             <button onClick={() => setView('table')} className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${view === 'table' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}><Table2 size={13} />Table</button>
             <button onClick={() => setView('kanban')} className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${view === 'kanban' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}><LayoutGrid size={13} />Kanban</button>
+            {remobs.length > 0 && (
+              <button onClick={() => setView('remob')} className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${view === 'remob' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}><RotateCcw size={13} />Remobilization ({remobs.length})</button>
+            )}
           </div>
         )}
       </div>
@@ -678,6 +681,34 @@ export default function UniversalSection({ section, initialFields, initialRecord
                       </select>
                     </div>
                   ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Remobilization tracking tab (view-only) */}
+      {view === 'remob' && (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">Tracking view — remobilized people and their visa/QIWA progress. Main entries are managed in Conduct & Exit and Visa Management.</p>
+          {remobs.map((r: any) => {
+            const statusColor: any = {
+              pending: 'bg-amber-50 text-amber-700', visa_allocated: 'bg-sky-50 text-sky-700',
+              qiwa_allocated: 'bg-sky-50 text-sky-700', completed: 'bg-emerald-50 text-emerald-700',
+            };
+            return (
+              <div key={r.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-800">{r.person_name}</span>
+                      {r.person_code && <span className="text-xs font-mono text-slate-400">{r.person_code}</span>}
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${r.path === 'qiwa_transfer' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}`}>{r.path === 'qiwa_transfer' ? 'QIWA Transfer' : 'New Visa'}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${statusColor[r.status] || 'bg-slate-100 text-slate-600'}`}>{r.status?.replace('_', ' ')}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">Was on {r.original_visa_type} · {r.how_left === 'local_transfer' ? 'Local transfer' : 'Exited'}</p>
+                  </div>
                 </div>
               </div>
             );

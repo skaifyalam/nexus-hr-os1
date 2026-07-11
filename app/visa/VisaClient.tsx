@@ -156,8 +156,18 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
 
   const totals = useMemo(() => {
     const total = blocks.reduce((s, b) => s + (b.total_quantity || 0), 0);
-    const used = allocations.filter(a => a.status !== 'cancelled').length;
-    return { total, used, available: total - used };
+    const stamped = allocations.filter(a => a.stage === 'stamped').length;
+    const inProcess = allocations.filter(a => a.stage !== 'cancelled' && a.stage !== 'missed' && a.stage !== 'stamped').length;
+    const available = total - stamped;
+    // Breakdown by visa type/category
+    const byType: Record<string, { total: number; available: number }> = {};
+    blocks.forEach(b => {
+      const t = b.visa_type || 'Other';
+      if (!byType[t]) byType[t] = { total: 0, available: 0 };
+      byType[t].total += (b.total_quantity || 0);
+      byType[t].available += balanceOf(b);
+    });
+    return { total, stamped, inProcess, available, byType };
   }, [blocks, allocations]);
 
   // ─── New visa block ───
@@ -370,20 +380,39 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
 
       {tab === 'blocks' && (<>
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-4 gap-4 mb-4">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-1"><CreditCard size={15} className="text-indigo-500" /><span className="text-xs font-medium text-slate-500">Total Visas</span></div>
           <p className="text-2xl font-bold text-slate-900">{totals.total}</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-1"><Users size={15} className="text-amber-500" /><span className="text-xs font-medium text-slate-500">Allocated</span></div>
-          <p className="text-2xl font-bold text-amber-600">{totals.used}</p>
+          <div className="flex items-center gap-2 mb-1"><Users size={15} className="text-amber-500" /><span className="text-xs font-medium text-slate-500">In Process</span></div>
+          <p className="text-2xl font-bold text-amber-600">{totals.inProcess}</p>
+          <p className="text-[11px] text-slate-400">being processed, not yet stamped</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-1"><CheckCircle2 size={15} className="text-sky-500" /><span className="text-xs font-medium text-slate-500">Stamped</span></div>
+          <p className="text-2xl font-bold text-sky-600">{totals.stamped}</p>
+          <p className="text-[11px] text-slate-400">visas consumed</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-1"><CheckCircle2 size={15} className="text-emerald-500" /><span className="text-xs font-medium text-slate-500">Available Balance</span></div>
           <p className="text-2xl font-bold text-emerald-600">{totals.available}</p>
         </div>
       </div>
+
+      {/* Category breakdown */}
+      {Object.keys(totals.byType).length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-5">
+          {Object.entries(totals.byType).map(([type, v]: any) => (
+            <div key={type} className="inline-flex items-center gap-2 bg-white border border-slate-100 rounded-xl px-3 py-1.5 text-xs shadow-sm">
+              <span className="font-medium text-slate-700">{type}</span>
+              <span className="text-emerald-600 font-semibold">{v.available}</span>
+              <span className="text-slate-400">/ {v.total} available</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {blocks.length === 0 ? (
         <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-14 text-center">
@@ -413,7 +442,8 @@ export default function VisaClient({ initialBlocks, initialAllocations, people, 
                   <div className="flex items-center gap-2">
                     <div className="text-right">
                       <p className={`text-lg font-bold ${bal <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{bal}<span className="text-xs text-slate-400 font-normal"> / {b.total_quantity}</span></p>
-                      <p className="text-xs text-slate-400">visas left · {chasingCount(b.id)} in process</p>
+                      <p className="text-xs text-emerald-600 font-medium">{bal} visa{bal === 1 ? '' : 's'} left</p>
+                      {chasingCount(b.id) > 0 && <p className="text-[11px] text-amber-600">{chasingCount(b.id)} in process</p>}
                     </div>
                     <button onClick={() => deleteBlock(b.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={13} /></button>
                   </div>

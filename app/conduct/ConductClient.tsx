@@ -12,8 +12,8 @@ const statusBadge = (s: string) =>
   : s === 'rejected' ? <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-50 text-red-600 rounded-full"><XCircle size={11} />rejected</span>
   : <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full"><Clock size={11} />{s.replace('_', ' ')}</span>;
 
-export default function ConductClient({ initialConduct, initialExits, initialRemobs = [], employees, empFields, activeConfig, companyId, userEmail }: {
-  initialConduct: any[]; initialExits: any[]; initialRemobs?: any[]; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
+export default function ConductClient({ initialConduct, initialExits, initialRemobs = [], candFields = [], employees, empFields, activeConfig, companyId, userEmail }: {
+  initialConduct: any[]; initialExits: any[]; initialRemobs?: any[]; candFields?: any[]; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
 }) {
   const [tab, setTab] = useState<'conduct' | 'exit' | 'remob'>('conduct');
   const [conduct, setConduct] = useState(initialConduct);
@@ -124,6 +124,26 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
     if (!remobFor) return;
     setRemobSaving(true); setRemobMsg('');
     const path = decidePath(remobVisaType, remobHowLeft);
+
+    // For the NEW VISA path, create a candidate in the main recruitment pipeline
+    // so the agency can work on them. QIWA path stays separate (no pipeline entry).
+    let newCandidateId: string | null = null;
+    if (path === 'new_visa') {
+      // Build a candidate record using the candidate section's name/id fields.
+      const candNameField = candFields.find((f: any) => /name/i.test(f.field_label))?.field_key;
+      const data: any = {};
+      if (candNameField) data[candNameField] = remobFor.person_name;
+      // Also copy any obvious code/id field
+      const candCodeField = candFields.find((f: any) => f.is_id_field || /code|id/i.test(f.field_label))?.field_key;
+      if (candCodeField && remobFor.person_code) data[candCodeField] = remobFor.person_code;
+      const { data: cand } = await supabase.from('section_records').insert({
+        company_id: companyId, section_key: 'candidate',
+        record_id: remobFor.person_code || remobFor.person_name,
+        data: { ...data, _remob_origin: true, _remob_visa_type: remobVisaType },
+      }).select().single();
+      newCandidateId = cand?.id || null;
+    }
+
     const { error } = await supabase.from('remobilizations').insert({
       company_id: companyId,
       exit_record_id: remobFor.id,
@@ -134,13 +154,16 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
       how_left: remobHowLeft,
       path,
       status: 'pending',
+      note: newCandidateId ? `pipeline_candidate:${newCandidateId}` : null,
     });
     if (error) { setRemobMsg(error.message); setRemobSaving(false); return; }
     const { data: newRemob } = await supabase.from('remobilizations').select('*').eq('exit_record_id', remobFor.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (newRemob) setRemobs(p => [newRemob, ...p]);
-    setRemobMsg(`✓ Remobilization started. Path: ${path === 'qiwa_transfer' ? 'QIWA Transfer' : 'New Visa'}. It now shows in the Remobilization tab and as pending in Visa Management.`);
+    setRemobMsg(path === 'qiwa_transfer'
+      ? '✓ Remobilization started. Path: QIWA Transfer. It shows in the QIWA tab of Visa Management.'
+      : '✓ Remobilization started. Path: New Visa. The person was added to the Recruitment Pipeline for the agency to process, and shows as pending in Visa Management.');
     setRemobSaving(false);
-    setTimeout(() => { setRemobFor(null); setRemobMsg(''); }, 2500);
+    setTimeout(() => { setRemobFor(null); setRemobMsg(''); }, 3000);
   };
 
   const cancelRemob = async (id: string) => {
