@@ -12,8 +12,8 @@ const statusBadge = (s: string) =>
   : s === 'rejected' ? <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-red-50 text-red-600 rounded-full"><XCircle size={11} />rejected</span>
   : <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full"><Clock size={11} />{s.replace('_', ' ')}</span>;
 
-export default function ConductClient({ initialConduct, initialExits, initialRemobs = [], candFields = [], employees, empFields, activeConfig, companyId, userEmail }: {
-  initialConduct: any[]; initialExits: any[]; initialRemobs?: any[]; candFields?: any[]; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
+export default function ConductClient({ initialConduct, initialExits, initialRemobs = [], candFields = [], candSectionId = '', employees, empFields, activeConfig, companyId, userEmail }: {
+  initialConduct: any[]; initialExits: any[]; initialRemobs?: any[]; candFields?: any[]; candSectionId?: string; employees: any[]; empFields: any[]; activeConfig?: any; companyId: string; userEmail: string;
 }) {
   const [tab, setTab] = useState<'conduct' | 'exit' | 'remob'>('conduct');
   const [conduct, setConduct] = useState(initialConduct);
@@ -103,13 +103,24 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
   const [remobFor, setRemobFor] = useState<any>(null);
   const [remobVisaType, setRemobVisaType] = useState('Work Visa');
   const [remobHowLeft, setRemobHowLeft] = useState('exited');
+  const [remobRecId, setRemobRecId] = useState('');
+  const [genningId, setGenningId] = useState(false);
   const [remobSaving, setRemobSaving] = useState(false);
   const [remobMsg, setRemobMsg] = useState('');
+
+  const generateRecId = async () => {
+    if (!candSectionId) { setRemobMsg('No recruitment section found to generate an ID.'); return; }
+    setGenningId(true);
+    const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: candSectionId });
+    if (idVal) setRemobRecId(idVal);
+    setGenningId(false);
+  };
 
   const openRemobilize = (exitRec: any) => {
     setRemobFor(exitRec);
     setRemobVisaType('Work Visa');
     setRemobHowLeft('exited');
+    setRemobRecId('');
     setRemobMsg('');
   };
 
@@ -129,20 +140,23 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
     // so the agency can work on them. QIWA path stays separate (no pipeline entry).
     let newCandidateId: string | null = null;
     if (path === 'new_visa') {
-      // Build a candidate record using the candidate section's name/id fields.
+      // Recruitment ID: use what the admin entered/generated, else auto-generate.
+      let recId = remobRecId.trim();
+      if (!recId && candSectionId) {
+        const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: candSectionId });
+        recId = idVal || '';
+      }
       const candNameField = candFields.find((f: any) => /name/i.test(f.field_label))?.field_key;
+      const candIdField = candFields.find((f: any) => f.is_id_field)?.field_key;
       const data: any = {};
-      // Always store the name — under the detected name field if available,
-      // otherwise under a generic 'name' key so it's never blank in the pipeline.
       if (candNameField) data[candNameField] = remobFor.person_name;
       else data['name'] = remobFor.person_name;
-      const candCodeField = candFields.find((f: any) => f.is_id_field || /code|id/i.test(f.field_label))?.field_key;
-      if (candCodeField && remobFor.person_code) data[candCodeField] = remobFor.person_code;
-      else if (remobFor.person_code) data['code'] = remobFor.person_code;
+      // Put the recruitment ID in the candidate's ID field (NOT the employee code)
+      if (candIdField && recId) data[candIdField] = recId;
       const { data: cand, error: candErr } = await supabase.from('section_records').insert({
         company_id: companyId, section_key: 'candidate',
-        record_id: remobFor.person_code || remobFor.person_name,
-        data: { ...data, _remob_origin: true, _remob_visa_type: remobVisaType },
+        record_id: recId || remobFor.person_name,
+        data: { ...data, _remob_origin: true, _remob_visa_type: remobVisaType, _remob_from_employee: remobFor.person_code || '' },
       }).select().single();
       if (candErr) { setRemobMsg(`Could not add to pipeline: ${candErr.message}`); setRemobSaving(false); return; }
       newCandidateId = cand?.id || null;
@@ -510,8 +524,18 @@ export default function ConductClient({ initialConduct, initialExits, initialRem
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5 text-xs text-indigo-700">
                 {decidePath(remobVisaType, remobHowLeft) === 'qiwa_transfer'
                   ? '→ Path: QIWA Transfer. This person will show as QIWA-pending in Visa Management.'
-                  : '→ Path: New Visa. This person will show as visa-pending in Visa Management.'}
+                  : '→ Path: New Visa. This person will be added to the Recruitment Pipeline for the agency to process.'}
               </div>
+              {decidePath(remobVisaType, remobHowLeft) === 'new_visa' && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-700">Recruitment ID</label>
+                  <div className="flex gap-2">
+                    <input value={remobRecId} onChange={e => setRemobRecId(e.target.value)} placeholder="Enter or generate" className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <button type="button" onClick={generateRecId} disabled={genningId} className="px-3 py-2.5 text-xs font-medium bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 disabled:opacity-40 whitespace-nowrap">{genningId ? '…' : 'Generate'}</button>
+                  </div>
+                  <p className="text-xs text-slate-400">A new recruitment ID for the pipeline. Leave blank to auto-generate.</p>
+                </div>
+              )}
               {remobMsg && <p className={`text-xs ${remobMsg.startsWith('✓') ? 'text-emerald-600' : 'text-red-500'}`}>{remobMsg}</p>}
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">

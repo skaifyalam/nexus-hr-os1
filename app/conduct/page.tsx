@@ -24,11 +24,14 @@ export default async function ConductPage() {
     supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'candidate').order('display_order'),
   ]);
 
+  // Candidate section (for generating recruitment IDs when remobilizing)
+  const { data: candSection } = await supabase.from('company_sections').select('id, id_format').eq('company_id', companyId).eq('section_key', 'candidate').maybeSingle();
+
   const { people: employees } = await loadPeopleForPicker(companyId, 'employee');
 
   return (
     <Shell current="/conduct" profile={profile} sections={sections} companyId={companyId}>
-      <ConductClient initialConduct={conduct || []} initialExits={exits || []} initialRemobs={remobs || []} candFields={candFields || []} employees={employees} empFields={empFields || []} activeConfig={empSection || null} companyId={companyId} userEmail={user?.email || ''} />
+      <ConductClient initialConduct={conduct || []} initialExits={exits || []} initialRemobs={remobs || []} candFields={candFields || []} candSectionId={candSection?.id || ''} employees={employees} empFields={empFields || []} activeConfig={empSection || null} companyId={companyId} userEmail={user?.email || ''} />
     </Shell>
   );
 }
