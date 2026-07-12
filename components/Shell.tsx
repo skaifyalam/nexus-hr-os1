@@ -99,16 +99,38 @@ export default function Shell({
 
   // Preserve main-content scroll position across refresh (per page)
   const mainRef = useRef<HTMLElement>(null);
+  const saveScrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleMainScroll = () => {
-    if (typeof window !== 'undefined' && mainRef.current) {
-      try { sessionStorage.setItem(`scroll:${window.location.pathname}`, String(mainRef.current.scrollTop)); } catch {}
-    }
+    if (saveScrollTimer.current) clearTimeout(saveScrollTimer.current);
+    // Debounce: persist the resting position once scrolling settles, not every tick.
+    saveScrollTimer.current = setTimeout(() => {
+      const el = mainRef.current;
+      if (typeof window === 'undefined' || !el) return;
+      // On reload, content re-renders in stages — a scroll event can fire while the
+      // container is still short (nothing to scroll yet), reporting scrollTop 0 even
+      // though the user was scrolled down before refreshing. Don't let that spurious
+      // 0 clobber the real saved position.
+      if (el.scrollTop === 0 && el.scrollHeight <= el.clientHeight) return;
+      try { sessionStorage.setItem(`scroll:${window.location.pathname}`, String(el.scrollTop)); } catch {}
+    }, 150);
   };
   useEffect(() => {
-    if (typeof window !== 'undefined' && mainRef.current) {
-      const saved = sessionStorage.getItem(`scroll:${window.location.pathname}`);
-      if (saved) { requestAnimationFrame(() => { if (mainRef.current) mainRef.current.scrollTop = Number(saved); }); }
-    }
+    if (typeof window === 'undefined') return;
+    const key = `scroll:${window.location.pathname}`;
+    const saved = sessionStorage.getItem(key);
+    const target = saved ? Number(saved) : 0;
+    if (!target) return;
+
+    // Content height isn't always ready on the very next frame after reload (data
+    // still rendering in), so re-apply a few times over ~500ms rather than once.
+    const delays = [0, 100, 250, 500];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    delays.forEach(delay => {
+      const apply = () => { if (mainRef.current) mainRef.current.scrollTop = target; };
+      if (delay === 0) requestAnimationFrame(apply);
+      else timers.push(setTimeout(apply, delay));
+    });
+    return () => { timers.forEach(clearTimeout); if (saveScrollTimer.current) clearTimeout(saveScrollTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
