@@ -3,7 +3,7 @@ import { createRouteClient } from '@/lib/supabase/server';
 
 export async function POST(req: Request) {
   try {
-    const { headers, sample_rows, section_key, company_id } = await req.json();
+    const { headers, sample_rows, unique_by_column, section_key, company_id } = await req.json();
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 });
     }
@@ -97,6 +97,26 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
       seenKeys.add(unique);
       return { ...f, field_key: unique };
     });
+
+    // For every dropdown field, use the COMPLETE set of unique values from the whole
+    // uploaded column (not just the AI's partial sample). This fixes options being
+    // missed on first upload. Matches by the field's label against the column headers.
+    if (unique_by_column && typeof unique_by_column === 'object') {
+      const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+      fields = fields.map((f: any) => {
+        if (f.field_type !== 'dropdown') return f;
+        // Find the source column whose header matches this field's label
+        const colKey = Object.keys(unique_by_column).find(h => norm(h) === norm(f.field_label))
+          || Object.keys(unique_by_column).find(h => norm(h).includes(norm(f.field_label)) || norm(f.field_label).includes(norm(h)));
+        const fullOptions = colKey ? unique_by_column[colKey] : null;
+        if (fullOptions && fullOptions.length > 0) {
+          // If there are too many distinct values, it's really free text, not a dropdown
+          if (fullOptions.length > 100) return { ...f, field_type: 'text', options: [] };
+          return { ...f, options: fullOptions };
+        }
+        return f;
+      });
+    }
 
     const supabase = createRouteClient();
     const { error: delErr } = await supabase.from('section_field_configs')
