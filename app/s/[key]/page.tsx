@@ -20,32 +20,46 @@ export default async function SectionPage({ params }: { params: { key: string } 
 
   if (!section) notFound();
 
-  const [{ data: fields }, { data: stageFlows }] = await Promise.all([
+  // Run all independent queries in parallel instead of waterfalling.
+  // Records are fetched in one go (Supabase caps at 1000; for larger sets the
+  // extra pages load after, but the first 1000 render immediately).
+  const [
+    { data: fields },
+    { data: stageFlows },
+    { data: firstBatch },
+    confidential,
+    scope,
+  ] = await Promise.all([
     supabase.from('section_field_configs').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key).order('display_order'),
     supabase.from('stage_flows').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key),
+    supabase.from('section_records').select('*')
+      .eq('company_id', profile?.company_id).eq('section_key', params.key)
+      .order('created_at', { ascending: false }).range(0, 999),
+    getConfidentialFields(profile),
+    getProjectScope(profile, params.key),
   ]);
 
-  // Batched fetch — Supabase caps at 1000 rows per query, so loop until all loaded
-  let records: any[] = [];
-  const CHUNK = 1000;
-  for (let from = 0; ; from += CHUNK) {
-    const { data: batch } = await supabase.from('section_records').select('*')
-      .eq('company_id', profile?.company_id).eq('section_key', params.key)
-      .order('created_at', { ascending: false })
-      .range(from, from + CHUNK - 1);
-    if (!batch || batch.length === 0) break;
-    records = records.concat(batch);
-    if (batch.length < CHUNK) break;
+  // If the first batch is full (1000), there may be more — load the rest.
+  let records: any[] = firstBatch || [];
+  if (records.length === 1000) {
+    const CHUNK = 1000;
+    for (let from = CHUNK; ; from += CHUNK) {
+      const { data: batch } = await supabase.from('section_records').select('*')
+        .eq('company_id', profile?.company_id).eq('section_key', params.key)
+        .order('created_at', { ascending: false })
+        .range(from, from + CHUNK - 1);
+      if (!batch || batch.length === 0) break;
+      records = records.concat(batch);
+      if (batch.length < CHUNK) break;
+    }
   }
 
   // Confidential-field enforcement: strip fields this role may not see
-  const confidential = await getConfidentialFields(profile);
   const visibleFields = (fields || []).filter((f: any) => !confidential.includes(f.field_key));
 
   // Project-scope enforcement: restrict records to the user's assigned project(s)
-  const scope = await getProjectScope(profile, params.key);
   let scopedRecords = records;
   if (scope) {
     const allowed = scope.values.map(v => String(v).toLowerCase());

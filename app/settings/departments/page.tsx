@@ -9,12 +9,15 @@ export default async function DepartmentsPage() {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
-  const { data: sections } = await supabase.from('company_sections').select('*').eq('company_id', profile?.company_id).order('sidebar_order');
 
   if (!profile || !['super_admin', 'hr_director'].includes(profile.role)) redirect('/dashboard');
 
-  const { data: departments } = await supabase.from('departments').select('*').eq('company_id', profile?.company_id).order('name');
-  const { data: empCounts } = await supabase.from('employees').select('department_id');
+  // Fetch the rest in parallel (was sequential).
+  const [{ data: sections }, { data: departments }, { data: empCounts }] = await Promise.all([
+    supabase.from('company_sections').select('*').eq('company_id', profile?.company_id).order('sidebar_order'),
+    supabase.from('departments').select('*').eq('company_id', profile?.company_id).order('name'),
+    supabase.from('employees').select('department_id'),
+  ]);
 
   return (
     <Shell current="/settings/departments" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
