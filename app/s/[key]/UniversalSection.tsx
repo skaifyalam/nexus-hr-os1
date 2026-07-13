@@ -349,6 +349,16 @@ export default function UniversalSection({ section, initialFields, initialRecord
   };
 
   // ─── Bulk import data ───────────────────────────────────────
+  // Convert an Excel date serial number to a YYYY-MM-DD string.
+  // Excel epoch starts 1899-12-30; serial 25569 = 1970-01-01. Uses UTC to avoid
+  // timezone off-by-one. Only used for fields typed as 'date'.
+  const excelSerialToISODate = (serial: number): string => {
+    const ms = Math.round((serial - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return String(serial);
+    return d.toISOString().split('T')[0];
+  };
+
   const importData = (file: File) => {
     setImporting(true);
     const reader = new FileReader();
@@ -369,7 +379,16 @@ export default function UniversalSection({ section, initialFields, initialRecord
           let mk = rowKeys.find(k => k.trim().toLowerCase() === f.field_label.trim().toLowerCase());
           if (!mk) mk = rowKeys.find(k => norm(k) === norm(f.field_label));
           if (!mk) mk = rowKeys.find(k => norm(k).includes(norm(f.field_label)) || norm(f.field_label).includes(norm(k)));
-          if (mk && row[mk] !== '') data[f.field_key] = row[mk];
+          if (mk && row[mk] !== '') {
+            let cellValue = row[mk];
+            // If this field is a date and the cell came through as an Excel serial
+            // number, convert it to a readable YYYY-MM-DD. Non-date fields and
+            // already-formatted string dates are left untouched. Generic per company.
+            if (f.field_type === 'date' && typeof cellValue === 'number') {
+              cellValue = excelSerialToISODate(cellValue);
+            }
+            data[f.field_key] = cellValue;
+          }
         });
         let recordId = idField ? data[idField.field_key] : null;
         if (idField && !recordId) {
