@@ -3,7 +3,7 @@ import { createRouteClient } from '@/lib/supabase/server';
 
 export async function POST(req: Request) {
   try {
-    const { headers, sample_rows, unique_by_column, section_key, company_id } = await req.json();
+    const { headers, sample_rows, section_key, company_id } = await req.json();
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 });
     }
@@ -21,6 +21,7 @@ For each column, return a JSON array of field configurations. Each object must h
 - "options": array of unique values if field_type is "dropdown" (max 20)
 - "required": true if mandatory
 - "display_order": order number starting from 1
+- "links_to": if this column appears to reference a known business entity that exists as its own list in the system, suggest which one. One of: "agency" (recruitment agency / manpower supplier / recruiter), "project" (project / site / location code), "department", "country", or null if it does not reference such an entity. Only suggest this for columns whose VALUES are names/codes of agencies, projects, departments, or countries — NOT for people's names, dates, numbers, or free text. When unsure, use null.
 
 Rules:
 - Salary/Amount/Cost/Budget → "number"
@@ -32,6 +33,7 @@ Rules:
 - Name/Address with many unique values → "text"
 - ONLY a company-assigned sequential reference (Recruitment ID, Employee Code, internal Ref No) → "id_field"
 - Passport No, Iqama No, National ID, Visa No, Border No, Phone, Mobile → these are "text" (real-world numbers people type, NOT system-generated)
+- A column whose values look like agency/recruiter/manpower-supplier names (e.g. "IOC", "ABC Manpower", "Gulf Recruiters") → set "links_to": "agency". Still also give it a normal field_type (usually "dropdown" or "text").
 
 Return ONLY a valid JSON array. No markdown, no explanation.`;
 
@@ -98,26 +100,6 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
       return { ...f, field_key: unique };
     });
 
-    // For every dropdown field, use the COMPLETE set of unique values from the whole
-    // uploaded column (not just the AI's partial sample). This fixes options being
-    // missed on first upload. Matches by the field's label against the column headers.
-    if (unique_by_column && typeof unique_by_column === 'object') {
-      const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-      fields = fields.map((f: any) => {
-        if (f.field_type !== 'dropdown') return f;
-        // Find the source column whose header matches this field's label
-        const colKey = Object.keys(unique_by_column).find(h => norm(h) === norm(f.field_label))
-          || Object.keys(unique_by_column).find(h => norm(h).includes(norm(f.field_label)) || norm(f.field_label).includes(norm(h)));
-        const fullOptions = colKey ? unique_by_column[colKey] : null;
-        if (fullOptions && fullOptions.length > 0) {
-          // If there are too many distinct values, it's really free text, not a dropdown
-          if (fullOptions.length > 100) return { ...f, field_type: 'text', options: [] };
-          return { ...f, options: fullOptions };
-        }
-        return f;
-      });
-    }
-
     const supabase = createRouteClient();
     const { error: delErr } = await supabase.from('section_field_configs')
       .delete().eq('company_id', company_id).eq('section_key', section_key).eq('is_system', false);
@@ -129,6 +111,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`;
       field_type: f.field_type || 'text', options: f.options || [],
       is_id_field: f.is_id_field || false, id_format: f.id_format || null,
       required: f.required || false, display_order: f.display_order || i + 1,
+      links_to: f.links_to || null,
       is_system: false,
     }));
 

@@ -8,8 +8,8 @@ import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], companyId, userEmail = '' }: {
-  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; companyId: string; userEmail?: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], entityMappings = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
@@ -28,6 +28,17 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [mfType, setMfType] = useState('text');
   const [fieldsPanel, setFieldsPanel] = useState(false);
   const [stageFlows, setStageFlows] = useState<any[]>(initialStageFlows);
+
+  // ─── Entity linking (agency, etc.) ───
+  const [agencyList, setAgencyList] = useState<any[]>(agencies);
+  const [mappings, setMappings] = useState<any[]>(entityMappings);
+  // When an import finds unknown agency values, we collect them here to ask the user.
+  const [mapModal, setMapModal] = useState<null | {
+    entityType: string; fieldKey: string; unknowns: string[];
+    // per-unknown choice: either an existing entity id, or a new name to create
+    choices: Record<string, { mode: 'existing' | 'new' | 'skip'; existingId?: string; newName?: string }>;
+  }>(null);
+  const [mapSaving, setMapSaving] = useState(false);
   const [flowPanel, setFlowPanel] = useState(false);
   const [statusChange, setStatusChange] = useState<{ record: any; newStatus: string } | null>(null);
   const [scDate, setScDate] = useState('');
@@ -102,23 +113,9 @@ export default function UniversalSection({ section, initialFields, initialRecord
           const o: any = {}; headers.forEach((h: string, i: number) => o[h] = r[i] ?? ''); return o;
         });
 
-        // Compute the COMPLETE set of unique values per column across the WHOLE file.
-        // This ensures dropdown fields capture every option, not just what's in the
-        // first few sample rows (fixes the "upload twice" bug).
-        const uniqueByColumn: Record<string, string[]> = {};
-        headers.forEach((h: string, i: number) => {
-          const set = new Set<string>();
-          for (const r of dataRows) {
-            const v = r[i];
-            if (v !== '' && v != null) set.add(String(v).trim());
-            if (set.size > 100) break; // cap: >100 distinct = it's free text, not a dropdown
-          }
-          uniqueByColumn[h] = Array.from(set);
-        });
-
         const res = await fetch('/api/analyze-fields', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ headers, sample_rows: sampleRows, unique_by_column: uniqueByColumn, section_key: section.section_key, company_id: companyId }),
+          body: JSON.stringify({ headers, sample_rows: sampleRows, section_key: section.section_key, company_id: companyId }),
         });
 
         if (!res.ok) {
@@ -264,6 +261,64 @@ export default function UniversalSection({ section, initialFields, initialRecord
   };
 
   // Called when a status value changes anywhere (inline or kanban)
+  // Detect agency-linked columns with values not yet recognised, and prompt to map.
+  const detectUnknownLinks = (importedRecords: any[]) => {
+    const agencyField = fields.find((f: any) => f.links_to === 'agency');
+    if (!agencyField) return;
+    const knownNames = new Set(agencyList.map(a => String(a.name).trim().toLowerCase()));
+    const mapped = new Set(mappings.filter(m => m.entity_type === 'agency').map(m => String(m.excel_value).trim().toLowerCase()));
+    const unknowns = new Set<string>();
+    importedRecords.forEach(r => {
+      const v = r.data?.[agencyField.field_key];
+      if (!v) return;
+      const key = String(v).trim().toLowerCase();
+      if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
+    });
+    if (unknowns.size === 0) return;
+    const choices: any = {};
+    Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+    setMapModal({ entityType: 'agency', fieldKey: agencyField.field_key, unknowns: Array.from(unknowns), choices });
+  };
+
+  // Save the user's agency mappings: create new agencies where chosen, and record
+  // every mapping so future imports link automatically.
+  const saveMappings = async () => {
+    if (!mapModal) return;
+    setMapSaving(true);
+    const newMappingRows: any[] = [];
+    const createdAgencies: any[] = [];
+    for (const val of mapModal.unknowns) {
+      const choice = mapModal.choices[val];
+      if (!choice || choice.mode === 'skip') continue;
+      let mappedId: string | null = null;
+      let mappedName = '';
+      if (choice.mode === 'existing' && choice.existingId) {
+        mappedId = choice.existingId;
+        mappedName = agencyList.find(a => a.id === choice.existingId)?.name || val;
+      } else if (choice.mode === 'new') {
+        const name = (choice.newName || val).trim();
+        const existing = agencyList.find(a => String(a.name).trim().toLowerCase() === name.toLowerCase());
+        if (existing) { mappedId = existing.id; mappedName = existing.name; }
+        else {
+          const { data: newAg } = await supabase.from('agencies')
+            .insert({ company_id: companyId, name, status: 'active' }).select().single();
+          if (newAg) { mappedId = newAg.id; mappedName = newAg.name; createdAgencies.push(newAg); }
+        }
+      }
+      if (mappedId) {
+        newMappingRows.push({ company_id: companyId, entity_type: 'agency', excel_value: val, mapped_id: mappedId, mapped_name: mappedName });
+      }
+    }
+    if (newMappingRows.length > 0) {
+      const { data: savedMaps } = await supabase.from('entity_mappings')
+        .upsert(newMappingRows, { onConflict: 'company_id,entity_type,excel_value' }).select();
+      if (savedMaps) setMappings(p => [...p, ...savedMaps]);
+    }
+    if (createdAgencies.length > 0) setAgencyList(p => [...p, ...createdAgencies]);
+    setMapSaving(false);
+    setMapModal(null);
+  };
+
   const requestStatusChange = (record: any, newStatus: string) => {
     if (!stageField) return;
     const current = record.data?.[stageField.field_key];
@@ -442,6 +497,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
           const merged = p.map(r => updMap.get(r.id) || r);
           return [...inserted, ...merged];
         });
+
+        // After importing, check any agency-linked column for values we don't
+        // recognise (not an existing agency, not already mapped) and ask the user.
+        detectUnknownLinks([...inserted, ...updatedList]);
       }
       setImporting(false);
     };
@@ -974,6 +1033,50 @@ export default function UniversalSection({ section, initialFields, initialRecord
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Agency mapping modal — appears after import when unknown agency values are found */}
+      {mapModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-900">Link agencies from your file</h2>
+              <p className="text-xs text-slate-500 mt-0.5">We found agency values in your upload that aren’t linked yet. Tell us what each one is — we’ll remember it for next time.</p>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {mapModal.unknowns.map(val => {
+                const choice = mapModal.choices[val];
+                return (
+                  <div key={val} className="border border-slate-100 rounded-xl p-3">
+                    <p className="text-sm font-medium text-slate-800 mb-2">“{val}”</p>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'new', newName: val } } }))}
+                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'new' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>Create new agency</button>
+                      <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'existing', existingId: agencyList[0]?.id } } }))}
+                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'existing' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`} disabled={agencyList.length === 0}>Link to existing</button>
+                      <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'skip' } } }))}
+                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'skip' ? 'bg-slate-500 text-white border-slate-500' : 'bg-white border-slate-200 text-slate-600'}`}>Skip</button>
+                    </div>
+                    {choice.mode === 'new' && (
+                      <input value={choice.newName || ''} onChange={e => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'new', newName: e.target.value } } }))}
+                        placeholder="Proper agency name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    )}
+                    {choice.mode === 'existing' && (
+                      <select value={choice.existingId || ''} onChange={e => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'existing', existingId: e.target.value } } }))}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        {agencyList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+              <button onClick={() => setMapModal(null)} className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">Later</button>
+              <button onClick={saveMappings} disabled={mapSaving} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">{mapSaving ? 'Saving…' : 'Save links'}</button>
             </div>
           </div>
         </div>

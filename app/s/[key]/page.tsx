@@ -20,46 +20,32 @@ export default async function SectionPage({ params }: { params: { key: string } 
 
   if (!section) notFound();
 
-  // Run all independent queries in parallel instead of waterfalling.
-  // Records are fetched in one go (Supabase caps at 1000; for larger sets the
-  // extra pages load after, but the first 1000 render immediately).
-  const [
-    { data: fields },
-    { data: stageFlows },
-    { data: firstBatch },
-    confidential,
-    scope,
-  ] = await Promise.all([
+  const [{ data: fields }, { data: stageFlows }] = await Promise.all([
     supabase.from('section_field_configs').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key).order('display_order'),
     supabase.from('stage_flows').select('*')
       .eq('company_id', profile?.company_id).eq('section_key', params.key),
-    supabase.from('section_records').select('*')
-      .eq('company_id', profile?.company_id).eq('section_key', params.key)
-      .order('created_at', { ascending: false }).range(0, 999),
-    getConfidentialFields(profile),
-    getProjectScope(profile, params.key),
   ]);
 
-  // If the first batch is full (1000), there may be more — load the rest.
-  let records: any[] = firstBatch || [];
-  if (records.length === 1000) {
-    const CHUNK = 1000;
-    for (let from = CHUNK; ; from += CHUNK) {
-      const { data: batch } = await supabase.from('section_records').select('*')
-        .eq('company_id', profile?.company_id).eq('section_key', params.key)
-        .order('created_at', { ascending: false })
-        .range(from, from + CHUNK - 1);
-      if (!batch || batch.length === 0) break;
-      records = records.concat(batch);
-      if (batch.length < CHUNK) break;
-    }
+  // Batched fetch — Supabase caps at 1000 rows per query, so loop until all loaded
+  let records: any[] = [];
+  const CHUNK = 1000;
+  for (let from = 0; ; from += CHUNK) {
+    const { data: batch } = await supabase.from('section_records').select('*')
+      .eq('company_id', profile?.company_id).eq('section_key', params.key)
+      .order('created_at', { ascending: false })
+      .range(from, from + CHUNK - 1);
+    if (!batch || batch.length === 0) break;
+    records = records.concat(batch);
+    if (batch.length < CHUNK) break;
   }
 
   // Confidential-field enforcement: strip fields this role may not see
+  const confidential = await getConfidentialFields(profile);
   const visibleFields = (fields || []).filter((f: any) => !confidential.includes(f.field_key));
 
   // Project-scope enforcement: restrict records to the user's assigned project(s)
+  const scope = await getProjectScope(profile, params.key);
   let scopedRecords = records;
   if (scope) {
     const allowed = scope.values.map(v => String(v).toLowerCase());
@@ -83,6 +69,12 @@ export default async function SectionPage({ params }: { params: { key: string } 
     remobs = rmb || [];
   }
 
+  // For entity-linking (agency etc.): load the company's agencies and any saved mappings.
+  const [{ data: agencies }, { data: entityMappings }] = await Promise.all([
+    supabase.from('agencies').select('id, name').eq('company_id', profile?.company_id).order('name'),
+    supabase.from('entity_mappings').select('*').eq('company_id', profile?.company_id),
+  ]);
+
   return (
     <Shell current={`/s/${params.key}`} profile={profile} sections={sections} companyId={profile?.company_id || ''}>
       <UniversalSection
@@ -91,6 +83,8 @@ export default async function SectionPage({ params }: { params: { key: string } 
         initialRecords={safeRecords}
         initialStageFlows={stageFlows || []}
         remobs={remobs}
+        agencies={agencies || []}
+        entityMappings={entityMappings || []}
         companyId={profile?.company_id || ''}
         userEmail={user?.email || ''}
       />
