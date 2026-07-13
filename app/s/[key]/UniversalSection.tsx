@@ -114,9 +114,22 @@ export default function UniversalSection({ section, initialFields, initialRecord
           const o: any = {}; headers.forEach((h: string, i: number) => o[h] = r[i] ?? ''); return o;
         });
 
+        // Compute the COMPLETE set of unique values per column across the WHOLE file,
+        // so dropdown fields capture every option (not just what's in the sample rows).
+        const uniqueByColumn: Record<string, string[]> = {};
+        headers.forEach((h: string, i: number) => {
+          const set = new Set<string>();
+          for (const r of dataRows) {
+            const v = r[i];
+            if (v !== '' && v != null) set.add(String(v).trim());
+            if (set.size > 100) break; // >100 distinct = free text, not a dropdown
+          }
+          uniqueByColumn[h] = Array.from(set);
+        });
+
         const res = await fetch('/api/analyze-fields', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ headers, sample_rows: sampleRows, section_key: section.section_key, company_id: companyId }),
+          body: JSON.stringify({ headers, sample_rows: sampleRows, unique_by_column: uniqueByColumn, section_key: section.section_key, company_id: companyId }),
         });
 
         if (!res.ok) {
