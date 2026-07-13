@@ -249,6 +249,24 @@ export default function UniversalSection({ section, initialFields, initialRecord
     return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
+  // Display a cell value. For date-typed fields, convert Excel serial numbers
+  // (e.g. 45231 from an older import) or ISO strings into a readable date.
+  // Everything else is shown as-is. Generic — driven by each field's own type.
+  const cellDisplay = (f: any, raw: any): string => {
+    if (raw === null || raw === undefined || raw === '') return '—';
+    if (f?.field_type === 'date') {
+      const num = typeof raw === 'number' ? raw : (/^\d+(\.\d+)?$/.test(String(raw).trim()) ? Number(raw) : NaN);
+      if (!isNaN(num) && num > 0 && num < 100000) {
+        const ms = Math.round((num - 25569) * 86400 * 1000);
+        const d = new Date(ms);
+        if (!isNaN(d.getTime())) return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+      const d = new Date(String(raw));
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    return String(raw);
+  };
+
   // Called when a status value changes anywhere (inline or kanban)
   const requestStatusChange = (record: any, newStatus: string) => {
     if (!stageField) return;
@@ -646,7 +664,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                          : f.field_type === 'boolean' ? (r.data?.[f.field_key] ? '✓' : '—')
                          : (section.section_key === 'employee' && f.id === nameField?.id)
                            ? <a href={`/employee/${r.id}`} className="text-indigo-600 hover:text-indigo-700 hover:underline font-medium">{r.data?.[f.field_key] || '—'}</a>
-                         : String(r.data?.[f.field_key] || '—')}
+                         : cellDisplay(f, r.data?.[f.field_key])}
                       </td>
                     ))}
                     <td className="px-4 py-3">

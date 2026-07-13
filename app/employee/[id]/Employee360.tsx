@@ -7,6 +7,26 @@ import { createClient } from '@/lib/supabase/client';
 const daysUntil = (d: string) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
 const fmt = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
+// Display a field value. If the field is a date and the stored value is an Excel
+// serial number (e.g. 45231 from an old import) OR an ISO date string, show it as
+// a readable date. Non-date fields and normal text are shown untouched.
+const displayValue = (f: any, raw: any): string => {
+  if (raw === null || raw === undefined || raw === '') return '—';
+  if (f?.field_type === 'date') {
+    // Excel serial number → date
+    const num = typeof raw === 'number' ? raw : (/^\d+(\.\d+)?$/.test(String(raw).trim()) ? Number(raw) : NaN);
+    if (!isNaN(num) && num > 0 && num < 100000) {
+      const ms = Math.round((num - 25569) * 86400 * 1000);
+      const d = new Date(ms);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    // Otherwise try parsing as a normal date string
+    const d = new Date(String(raw));
+    if (!isNaN(d.getTime())) return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  return String(raw);
+};
+
 export default function Employee360({ emp, empFields, leave, attendance, performance, documents, visaAllocs, conduct, exits, grievances }: any) {
   const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(false);
@@ -114,7 +134,7 @@ export default function Employee360({ emp, empFields, leave, attendance, perform
                   {editing ? (
                     <input value={editForm[f.field_key] ?? ''} onChange={e => setEditForm((p: any) => ({ ...p, [f.field_key]: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mt-0.5" />
                   ) : (
-                    <p className="text-sm text-slate-700">{emp.data?.[f.field_key] || '—'}</p>
+                    <p className="text-sm text-slate-700">{displayValue(f, emp.data?.[f.field_key])}</p>
                   )}
                 </div>
               ))}
