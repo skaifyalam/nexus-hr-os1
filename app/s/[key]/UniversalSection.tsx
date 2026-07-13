@@ -20,6 +20,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [form, setForm] = useState<Record<string, any>>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState('');
   const [error, setError] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -140,7 +141,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
         // Confirm persistence — reload from DB
         const { data: reloaded } = await supabase.from('section_field_configs')
           .select('*').eq('company_id', companyId).eq('section_key', section.section_key).order('display_order');
-        if (reloaded && reloaded.length > 0) setFields(reloaded);
+        const freshFields = (reloaded && reloaded.length > 0) ? reloaded : data.fields;
+        if (freshFields) setFields(freshFields);
+
+        // Automatically import the data from the SAME file now (no second upload needed).
+        setAnalyzing(false);
+        await importData(file, freshFields);
+        return;
       } catch (err: any) {
         setError(`Upload failed: ${err.message}`);
       }
@@ -428,8 +435,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
     return d.toISOString().split('T')[0];
   };
 
-  const importData = (file: File) => {
-    setImporting(true);
+  const importData = (file: File, explicitFields?: any[]) => {
+    const activeFields = explicitFields || fields;
+    setImporting(true); setImportMsg('Importing your data…');
+    return new Promise<void>((resolve) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       const wb = XLSX.read(e.target?.result, { type: 'binary' });
@@ -443,7 +452,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       for (const row of valid) {
         const data: any = {};
         const rowKeys = Object.keys(row);
-        fields.forEach(f => {
+        activeFields.forEach((f: any) => {
           // Try exact match first, then fuzzy match on normalized strings
           let mk = rowKeys.find(k => k.trim().toLowerCase() === f.field_label.trim().toLowerCase());
           if (!mk) mk = rowKeys.find(k => norm(k) === norm(f.field_label));
@@ -459,10 +468,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
             data[f.field_key] = cellValue;
           }
         });
-        let recordId = idField ? data[idField.field_key] : null;
-        if (idField && !recordId) {
+        const activeIdField = activeFields.find((f: any) => f.is_id_field);
+        let recordId = activeIdField ? data[activeIdField.field_key] : null;
+        if (activeIdField && !recordId) {
           const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
-          recordId = idVal; data[idField.field_key] = idVal;
+          recordId = idVal; data[activeIdField.field_key] = idVal;
         }
         newRecords.push({ company_id: companyId, section_key: section.section_key, record_id: recordId, data });
       }
@@ -503,8 +513,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
         detectUnknownLinks([...inserted, ...updatedList]);
       }
       setImporting(false);
+      setImportMsg('');
+      resolve();
     };
     reader.readAsBinaryString(file);
+    });
   };
 
   // ─── Export in original template format ─────────────────────
@@ -618,6 +631,14 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // ═══ CONFIGURED — full section UI ═══════════════════════════
   return (
     <div>
+      {(analyzing || importing) && (
+        <div className="fixed top-0 left-0 right-0 z-[60] flex items-center justify-center">
+          <div className="mt-3 flex items-center gap-2 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl shadow-lg">
+            <Loader size={15} className="animate-spin" />
+            {analyzing ? 'Reading your file and setting up fields…' : (importMsg || 'Importing your data…')}
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{section.label}</h1>
