@@ -330,8 +330,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
       }
     }
     if (newMappingRows.length > 0) {
-      const { data: savedMaps } = await supabase.from('entity_mappings')
+      const { data: savedMaps, error: mapErr } = await supabase.from('entity_mappings')
         .upsert(newMappingRows, { onConflict: 'company_id,entity_type,excel_value' }).select();
+      if (mapErr) {
+        alert(`Could not save the agency links: ${mapErr.message}`);
+        setMapSaving(false);
+        return;
+      }
       if (savedMaps) setMappings(p => [...p, ...savedMaps]);
     }
     if (createdAgencies.length > 0) setAgencyList(p => [...p, ...createdAgencies]);
