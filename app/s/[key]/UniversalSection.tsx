@@ -330,8 +330,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
       }
     }
     if (newMappingRows.length > 0) {
+      // Remove any existing mappings for these same excel values first (so re-mapping
+      // updates cleanly), then insert. Avoids ON CONFLICT constraint mismatch.
+      const valsToMap = newMappingRows.map(m => m.excel_value);
+      await supabase.from('entity_mappings')
+        .delete().eq('company_id', companyId).eq('entity_type', 'agency').in('excel_value', valsToMap);
       const { data: savedMaps, error: mapErr } = await supabase.from('entity_mappings')
-        .upsert(newMappingRows, { onConflict: 'company_id,entity_type,excel_value' }).select();
+        .insert(newMappingRows).select();
       if (mapErr) {
         alert(`Could not save the agency links: ${mapErr.message}`);
         setMapSaving(false);
@@ -466,27 +471,60 @@ export default function UniversalSection({ section, initialFields, initialRecord
       // Normalize for fuzzy matching: lowercase, strip punctuation & extra spaces
       const norm = (s: string) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
+      // AUTO-ADD NEW COLUMNS: if the Excel has a column that doesn't match any
+      // existing field, create it as a new field automatically (so re-imports with
+      // an extra/restored column bring their data in, instead of silently dropping it).
+      let workingFields = [...activeFields];
+      if (valid.length > 0) {
+        const excelHeaders = Object.keys(valid[0]);
+        const newFieldsToCreate: any[] = [];
+        for (const header of excelHeaders) {
+          if (!header || !header.trim()) continue;
+          const matches = workingFields.some((f: any) =>
+            f.field_label.trim().toLowerCase() === header.trim().toLowerCase() ||
+            norm(f.field_label) === norm(header) ||
+            norm(f.field_label).includes(norm(header)) || norm(header).includes(norm(f.field_label))
+          );
+          if (!matches) {
+            const fieldKey = norm(header).replace(/\s/g, '_') || `field_${Date.now()}`;
+            newFieldsToCreate.push({
+              company_id: companyId, section_key: section.section_key,
+              field_key: fieldKey, field_label: header.trim(),
+              field_type: 'text', options: [], is_id_field: false,
+              required: false, display_order: (workingFields.length + newFieldsToCreate.length + 1),
+              is_system: false,
+            });
+          }
+        }
+        if (newFieldsToCreate.length > 0) {
+          setImportMsg(`Adding ${newFieldsToCreate.length} new field(s) from your file…`);
+          const { data: createdFields } = await supabase.from('section_field_configs')
+            .insert(newFieldsToCreate).select();
+          if (createdFields && createdFields.length > 0) {
+            workingFields = [...workingFields, ...createdFields];
+            setFields(workingFields);
+          }
+        }
+      }
+
       const newRecords = [];
       for (const row of valid) {
         const data: any = {};
         const rowKeys = Object.keys(row);
-        activeFields.forEach((f: any) => {
+        workingFields.forEach((f: any) => {
           // Try exact match first, then fuzzy match on normalized strings
           let mk = rowKeys.find(k => k.trim().toLowerCase() === f.field_label.trim().toLowerCase());
           if (!mk) mk = rowKeys.find(k => norm(k) === norm(f.field_label));
           if (!mk) mk = rowKeys.find(k => norm(k).includes(norm(f.field_label)) || norm(f.field_label).includes(norm(k)));
           if (mk && row[mk] !== '') {
             let cellValue = row[mk];
-            // If this field is a date and the cell came through as an Excel serial
-            // number, convert it to a readable YYYY-MM-DD. Non-date fields and
-            // already-formatted string dates are left untouched. Generic per company.
             if (f.field_type === 'date' && typeof cellValue === 'number') {
               cellValue = excelSerialToISODate(cellValue);
             }
             data[f.field_key] = cellValue;
           }
         });
-        const activeIdField = activeFields.find((f: any) => f.is_id_field);
+        const activeIdField = workingFields.find((f: any) => f.is_id_field);
         let recordId = activeIdField ? data[activeIdField.field_key] : null;
         if (activeIdField && !recordId) {
           const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
