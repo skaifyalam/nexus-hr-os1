@@ -57,6 +57,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [efLabel, setEfLabel] = useState('');
   const [efType, setEfType] = useState('text');
   const [efOptions, setEfOptions] = useState('');
+  const [efLinksTo, setEfLinksTo] = useState('');
   const uploadRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
@@ -431,6 +432,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const startEditField = (f: any) => {
     setEditFieldId(f.id); setEfLabel(f.field_label); setEfType(f.field_type);
     setEfOptions((f.options || []).join('\n'));
+    setEfLinksTo(f.links_to || '');
   };
 
   const saveFieldEdit = async () => {
@@ -442,9 +444,32 @@ export default function UniversalSection({ section, initialFields, initialRecord
       is_id_field: efType === 'id_field',
       options: opts,
       id_format: efType === 'id_field' ? '{SEQ4}' : null,
+      links_to: efLinksTo || null,
     }).eq('id', editFieldId).select().single();
     if (data) setFields(p => p.map(f => f.id === editFieldId ? data : f));
     setEditFieldId(null);
+    // If this field was just marked as an agency link, check existing records for
+    // unknown agency values so the user can map them right away.
+    if (efLinksTo === 'agency') {
+      const updatedFields = fields.map(f => f.id === editFieldId ? { ...f, links_to: 'agency' } : f);
+      const agencyField = updatedFields.find((f: any) => f.links_to === 'agency');
+      if (agencyField) {
+        const knownNames = new Set(agencyList.map(a => String(a.name).trim().toLowerCase()));
+        const mapped = new Set(mappings.filter(m => m.entity_type === 'agency').map(m => String(m.excel_value).trim().toLowerCase()));
+        const unknowns = new Set<string>();
+        records.forEach(r => {
+          const v = r.data?.[agencyField.field_key];
+          if (!v) return;
+          const key = String(v).trim().toLowerCase();
+          if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
+        });
+        if (unknowns.size > 0) {
+          const choices: any = {};
+          Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+          setMapModal({ entityType: 'agency', fieldKey: agencyField.field_key, unknowns: Array.from(unknowns), choices });
+        }
+      }
+    }
   };
 
   // ─── Bulk import data ───────────────────────────────────────
@@ -1094,6 +1119,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
                         {['text','number','date','email','phone','dropdown','boolean','id_field'].map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                       {efType === 'dropdown' && <textarea value={efOptions} onChange={e => setEfOptions(e.target.value)} rows={3} placeholder="One option per line" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />}
+                      <div>
+                        <label className="text-xs text-slate-400">Links to (connects this column to a list)</label>
+                        <select value={efLinksTo} onChange={e => setEfLinksTo(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 mt-0.5">
+                          <option value="">— Not linked —</option>
+                          <option value="agency">Agency</option>
+                        </select>
+                      </div>
                       <div className="flex gap-2">
                         <button onClick={saveFieldEdit} className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg">Save</button>
                         <button onClick={() => setEditFieldId(null)} className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs rounded-lg">Cancel</button>
@@ -1106,6 +1138,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">{f.field_type}</span>
                           {f.is_id_field && <span className="text-xs px-1.5 py-0.5 bg-violet-100 text-violet-600 rounded">Auto ID</span>}
+                          {f.links_to && <span className="text-xs px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">→ {f.links_to}</span>}
                         </div>
                       </div>
                       <div className="flex gap-1">
