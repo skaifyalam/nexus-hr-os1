@@ -4,7 +4,7 @@ import { Plus, Edit2, Trash2, X, AlertCircle, Building2, Upload, Download, Loade
 import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
 
-export default function AgenciesSettingsClient({ initialAgencies, candCounts, companyId }: { initialAgencies: any[]; candCounts: any[]; companyId: string }) {
+export default function AgenciesSettingsClient({ initialAgencies, candCounts, companyId }: { initialAgencies: any[]; candCounts: Record<string, number>; companyId: string }) {
   const [agencies, setAgencies] = useState(initialAgencies);
   const [modal, setModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
   const [form, setForm] = useState({ name: '', country: '', contact_name: '', contact_email: '', contact_phone: '', status: 'active' });
@@ -13,7 +13,7 @@ export default function AgenciesSettingsClient({ initialAgencies, candCounts, co
   const [importMsg, setImportMsg] = useState('');
   const supabase = createClient();
 
-  const countFor = (id: string) => candCounts.filter((c) => c.agency_id === id).length;
+  const countFor = (id: string) => candCounts[id] || 0;
 
   // Export all agencies to Excel
   const exportAgencies = () => {
