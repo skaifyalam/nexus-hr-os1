@@ -493,26 +493,46 @@ export default function UniversalSection({ section, initialFields, initialRecord
         // UPSERT: update existing records (matched by record_id), insert new ones
         const existingById = new Map(records.filter(r => r.record_id).map(r => [String(r.record_id).trim(), r]));
         const toInsert: any[] = [];
-        const updatedList: any[] = [];
+        const toUpdate: { id: string; data: any }[] = [];
 
         for (const nr of newRecords) {
           const match = nr.record_id ? existingById.get(String(nr.record_id).trim()) : null;
           if (match) {
-            // Merge: imported values overwrite, existing values kept where import is empty
             const merged = { ...match.data, ...nr.data };
-            const { data: upd } = await supabase.from('section_records')
-              .update({ data: merged, updated_at: new Date().toISOString() })
-              .eq('id', match.id).select().single();
-            if (upd) updatedList.push(upd);
+            toUpdate.push({ id: match.id, data: merged });
           } else {
             toInsert.push(nr);
           }
         }
 
+        // Run updates in PARALLEL BATCHES (was one-by-one sequential — far too slow
+        // for large update files, e.g. 10k rows). Each batch fires many updates at
+        // once, and we wait per batch to avoid overwhelming the connection.
+        const updatedList: any[] = [];
+        if (toUpdate.length > 0) {
+          setImportMsg(`Updating ${toUpdate.length} records…`);
+          const BATCH = 50;
+          for (let i = 0; i < toUpdate.length; i += BATCH) {
+            const slice = toUpdate.slice(i, i + BATCH);
+            const results = await Promise.all(slice.map(u =>
+              supabase.from('section_records')
+                .update({ data: u.data, updated_at: new Date().toISOString() })
+                .eq('id', u.id).select().single()
+            ));
+            results.forEach(r => { if (r.data) updatedList.push(r.data); });
+            setImportMsg(`Updating records… ${Math.min(i + BATCH, toUpdate.length)}/${toUpdate.length}`);
+          }
+        }
+
         let inserted: any[] = [];
         if (toInsert.length > 0) {
-          const { data } = await supabase.from('section_records').insert(toInsert).select();
-          inserted = data || [];
+          setImportMsg(`Adding ${toInsert.length} new records…`);
+          // Insert in batches too (very large single inserts can time out)
+          const BATCH = 500;
+          for (let i = 0; i < toInsert.length; i += BATCH) {
+            const { data } = await supabase.from('section_records').insert(toInsert.slice(i, i + BATCH)).select();
+            if (data) inserted = inserted.concat(data);
+          }
         }
 
         setRecords(p => {
