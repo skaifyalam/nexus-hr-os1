@@ -248,9 +248,30 @@ export default function UniversalSection({ section, initialFields, initialRecord
     setMfLabel(''); setMfType('text');
   };
 
+  // Key used to remember a deleted field's setup, so if the same column comes
+  // back in a later import it returns with its type / link / position intact.
+  const fieldMemoryKey = (label: string) =>
+    `${section.section_key}::${String(label).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
   const deleteField = async (id: string) => {
+    const f = fields.find(x => x.id === id);
+    // Remember what this field WAS before removing it.
+    if (f) {
+      const memo = JSON.stringify({
+        field_type: f.field_type, options: f.options || [],
+        links_to: f.links_to || null, is_id_field: f.is_id_field || false,
+        id_format: f.id_format || null, display_order: f.display_order || null,
+      });
+      const key = fieldMemoryKey(f.field_label);
+      await supabase.from('entity_mappings')
+        .delete().eq('company_id', companyId).eq('entity_type', '_field_memory').eq('excel_value', key);
+      await supabase.from('entity_mappings').insert({
+        company_id: companyId, entity_type: '_field_memory',
+        excel_value: key, mapped_name: memo,
+      });
+    }
     await supabase.from('section_field_configs').delete().eq('id', id);
-    setFields(p => p.filter(f => f.id !== id));
+    setFields(p => p.filter(x => x.id !== id));
   };
 
   const saveActiveConfig = async (field: string, values: string[]) => {
@@ -501,35 +522,92 @@ export default function UniversalSection({ section, initialFields, initialRecord
       // an extra/restored column bring their data in, instead of silently dropping it).
       let workingFields = [...activeFields];
       if (valid.length > 0) {
-        const excelHeaders = Object.keys(valid[0]);
+        const excelHeaders = Object.keys(valid[0]).filter(h => h && h.trim());
+
+        // What did these columns look like before they were deleted?
+        const { data: memoryRows } = await supabase.from('entity_mappings')
+          .select('excel_value, mapped_name')
+          .eq('company_id', companyId).eq('entity_type', '_field_memory');
+        const memory = new Map<string, any>();
+        (memoryRows || []).forEach((m: any) => {
+          try { memory.set(m.excel_value, JSON.parse(m.mapped_name)); } catch {}
+        });
+
+        // Work out a column's type from its real values, rather than assuming text.
+        const inferType = (header: string) => {
+          const vals: any[] = [];
+          for (const row of valid) {
+            const v = row[header];
+            if (v !== '' && v != null) vals.push(v);
+            if (vals.length > 200) break;
+          }
+          if (vals.length === 0) return { field_type: 'text', options: [] };
+          const distinct = Array.from(new Set(vals.map(v => String(v).trim())));
+          // Excel dates arrive as serial numbers in a plausible date range
+          const looksDate = vals.every(v => typeof v === 'number' && v > 20000 && v < 60000);
+          if (looksDate) return { field_type: 'date', options: [] };
+          // A small, repeating set of values is a dropdown
+          if (distinct.length > 1 && distinct.length <= 25 && vals.length >= distinct.length * 2) {
+            return { field_type: 'dropdown', options: distinct };
+          }
+          return { field_type: 'text', options: [] };
+        };
+
         const newFieldsToCreate: any[] = [];
         for (const header of excelHeaders) {
-          if (!header || !header.trim()) continue;
           const matches = workingFields.some((f: any) =>
             f.field_label.trim().toLowerCase() === header.trim().toLowerCase() ||
             norm(f.field_label) === norm(header) ||
             norm(f.field_label).includes(norm(header)) || norm(header).includes(norm(f.field_label))
           );
-          if (!matches) {
-            const fieldKey = norm(header).replace(/\s/g, '_') || `field_${Date.now()}`;
-            newFieldsToCreate.push({
-              company_id: companyId, section_key: section.section_key,
-              field_key: fieldKey, field_label: header.trim(),
-              field_type: 'text', options: [], is_id_field: false,
-              required: false, display_order: (workingFields.length + newFieldsToCreate.length + 1),
-              is_system: false,
-            });
-          }
+          if (matches) continue;
+
+          const remembered = memory.get(fieldMemoryKey(header));
+          const inferred = remembered
+            ? { field_type: remembered.field_type || 'text', options: remembered.options || [] }
+            : inferType(header);
+          const fieldKey = norm(header).replace(/\s/g, '_') || `field_${Date.now()}`;
+          newFieldsToCreate.push({
+            company_id: companyId, section_key: section.section_key,
+            field_key: fieldKey, field_label: header.trim(),
+            field_type: inferred.field_type, options: inferred.options,
+            is_id_field: remembered?.is_id_field || false,
+            id_format: remembered?.id_format || null,
+            links_to: remembered?.links_to || null,
+            required: false,
+            // Position it where it sits in the Excel
+            display_order: excelHeaders.indexOf(header) + 1,
+            is_system: false,
+          });
         }
+
         if (newFieldsToCreate.length > 0) {
-          setImportMsg(`Adding ${newFieldsToCreate.length} new field(s) from your file…`);
-          const { data: createdFields } = await supabase.from('section_field_configs')
+          setImportMsg(`Adding ${newFieldsToCreate.length} field(s) back from your file…`);
+          const { data: createdFields, error: cfErr } = await supabase.from('section_field_configs')
             .insert(newFieldsToCreate).select();
+          if (cfErr) { setError(`Could not add new columns: ${cfErr.message}`); }
           if (createdFields && createdFields.length > 0) {
             workingFields = [...workingFields, ...createdFields];
-            setFields(workingFields);
           }
         }
+
+        // Put every field back in the file's column order. Fields not in the file
+        // (e.g. a Status column the app added for stages) keep their place at the end.
+        const orderOf = (f: any) => {
+          const i = excelHeaders.findIndex(h =>
+            h.trim().toLowerCase() === f.field_label.trim().toLowerCase() || norm(h) === norm(f.field_label)
+          );
+          return i === -1 ? 900 + (f.display_order || 0) : i + 1;
+        };
+        const reordered = [...workingFields].sort((a, b) => orderOf(a) - orderOf(b));
+        const needsRenumber = reordered.some((f, i) => f.display_order !== i + 1);
+        if (needsRenumber) {
+          await Promise.all(reordered.map((f, i) =>
+            supabase.from('section_field_configs').update({ display_order: i + 1 }).eq('id', f.id)
+          ));
+          workingFields = reordered.map((f, i) => ({ ...f, display_order: i + 1 }));
+        }
+        setFields(workingFields);
       }
 
       const newRecords = [];
