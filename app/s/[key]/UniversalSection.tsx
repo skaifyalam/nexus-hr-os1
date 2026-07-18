@@ -20,6 +20,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [form, setForm] = useState<Record<string, any>>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
+  // The "Review your fields" step: after upload we hold the detected fields + the
+  // file here and let the user confirm ID / Status / links / types before importing.
+  const [reviewStep, setReviewStep] = useState<null | { file: File; fields: any[] }>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [importMsg, setImportMsg] = useState('');
   const [error, setError] = useState('');
   const [stageFilter, setStageFilter] = useState('all');
@@ -64,7 +68,9 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
   const configured = fields.length > 0;
   const [forceSetup, setForceSetup] = useState(false);
-  const stageField = useMemo(() => fields.find(f => /status|stage/i.test(f.field_label)), [fields]);
+  const stageField = useMemo(() =>
+    fields.find(f => f.is_status_field) || fields.find(f => /status|stage/i.test(f.field_label)),
+  [fields]);
   const idField = useMemo(() => fields.find(f => f.is_id_field), [fields]);
   const nameField = useMemo(() => fields.find(f => /name|title/i.test(f.field_label)) || fields[0], [fields]);
 
@@ -148,19 +154,33 @@ export default function UniversalSection({ section, initialFields, initialRecord
           return;
         }
 
-        setFields(data.fields);
-        setForceSetup(false);
-        setManualBuild(false);
-        await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
-        // Confirm persistence — reload from DB
-        const { data: reloaded } = await supabase.from('section_field_configs')
-          .select('*').eq('company_id', companyId).eq('section_key', section.section_key).order('display_order');
-        const freshFields = (reloaded && reloaded.length > 0) ? reloaded : data.fields;
-        if (freshFields) setFields(freshFields);
+        // Instead of saving + importing immediately, show a Review step so the
+        // user can confirm which field is the ID / Status, what links to what, and
+        // each field's type. Import happens only after they confirm.
+        const detected = data.fields.map((f: any, i: number) => ({
+          ...f,
+          display_order: f.display_order || i + 1,
+          links_to: f.links_to || '',
+        }));
 
-        // Automatically import the data from the SAME file now (no second upload needed).
+        // "Only ask when something changed" rule: if this section is already set up
+        // and the incoming columns match the existing fields exactly (same names,
+        // same order, no additions/removals), skip the review and import straight away.
+        const existing = fields || [];
+        const sameName = (a: string, b: string) =>
+          String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+        const unchanged =
+          existing.length > 0 &&
+          detected.length === existing.length &&
+          detected.every((d: any, i: number) => sameName(d.field_label, existing[i]?.field_label));
+
         setAnalyzing(false);
-        await importData(file, freshFields);
+        if (unchanged) {
+          // Nothing changed — go straight to importing with the existing fields.
+          await importData(file, existing);
+          return;
+        }
+        setReviewStep({ file, fields: detected });
         return;
       } catch (err: any) {
         setError(`Upload failed: ${err.message}`);
@@ -168,6 +188,57 @@ export default function UniversalSection({ section, initialFields, initialRecord
       setAnalyzing(false);
     };
     reader.readAsBinaryString(file);
+  };
+
+  // Called from the Review step: persist the (possibly user-adjusted) fields,
+  // then import the data from the same file.
+  const confirmFieldsAndImport = async () => {
+    if (!reviewStep) return;
+    setReviewSaving(true);
+    try {
+      // Ensure exactly one ID field and clean rows for insert
+      const rows = reviewStep.fields.map((f: any, i: number) => ({
+        company_id: companyId, section_key: section.section_key,
+        field_key: f.field_key, field_label: f.field_label,
+        field_type: f.field_type || 'text', options: f.options || [],
+        is_id_field: !!f.is_id_field, id_format: f.is_id_field ? '{SEQ4}' : null,
+        required: !!f.required, display_order: f.display_order || i + 1,
+        links_to: f.links_to || null, is_status_field: !!f.is_status_field, is_system: false,
+      }));
+      // Replace the section's non-system fields with the confirmed set
+      await supabase.from('section_field_configs')
+        .delete().eq('company_id', companyId).eq('section_key', section.section_key).eq('is_system', false);
+      const { error: insErr } = await supabase.from('section_field_configs').insert(rows);
+      if (insErr) { setError(`Could not save fields: ${insErr.message}`); setReviewSaving(false); return; }
+      await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
+
+      const { data: reloaded } = await supabase.from('section_field_configs')
+        .select('*').eq('company_id', companyId).eq('section_key', section.section_key).order('display_order');
+      const freshFields = (reloaded && reloaded.length > 0) ? reloaded : rows;
+      setFields(freshFields);
+      setForceSetup(false);
+      setManualBuild(false);
+
+      const file = reviewStep.file;
+      setReviewStep(null);
+      setReviewSaving(false);
+      await importData(file, freshFields);
+    } catch (err: any) {
+      setError(`Setup failed: ${err.message}`);
+      setReviewSaving(false);
+    }
+  };
+
+  // Update one field within the Review step (used by the review UI)
+  const updateReviewField = (idx: number, patch: any) => {
+    setReviewStep(rs => {
+      if (!rs) return rs;
+      const fields = rs.fields.map((f, i) => (i === idx ? { ...f, ...patch } : { ...f }));
+      if (patch.is_id_field === true) {
+        fields.forEach((f, i) => { if (i !== idx) f.is_id_field = false; });
+      }
+      return { ...rs, fields };
+    });
   };
 
   // ─── Save a record ──────────────────────────────────────────
@@ -810,6 +881,76 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // ═══ CONFIGURED — full section UI ═══════════════════════════
   return (
     <div>
+      {/* ── Review your fields (after upload, before import) ── */}
+      {reviewStep && (
+        <div className="fixed inset-0 z-[70] bg-slate-50 overflow-y-auto">
+          <div className="max-w-4xl mx-auto px-6 py-8">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-slate-900">Review your fields</h1>
+              <p className="text-sm text-slate-500 mt-1">We read your file and set up these columns. Please check them — mark which one is the ID, which shows the status/stage, and whether any column links to your Agencies, Projects, Countries, Departments, or Companies. Then continue.</p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-500">
+                <div className="col-span-3">Column</div>
+                <div className="col-span-2">Type</div>
+                <div className="col-span-2">Is ID?</div>
+                <div className="col-span-2">Is Status?</div>
+                <div className="col-span-3">Links to</div>
+              </div>
+              {reviewStep.fields.map((f: any, idx: number) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-50 items-center">
+                  <div className="col-span-3">
+                    <input value={f.field_label} onChange={e => updateReviewField(idx, { field_label: e.target.value })}
+                      className="w-full text-sm font-medium text-slate-800 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1.5 py-1 focus:outline-none" />
+                  </div>
+                  <div className="col-span-2">
+                    <select value={f.field_type} onChange={e => updateReviewField(idx, { field_type: e.target.value })}
+                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="text">Text</option>
+                      <option value="number">Number</option>
+                      <option value="date">Date</option>
+                      <option value="dropdown">Dropdown</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <button type="button" onClick={() => updateReviewField(idx, { is_id_field: !f.is_id_field })}
+                      className={`px-2.5 py-1 rounded-lg text-xs border ${f.is_id_field ? 'bg-violet-600 text-white border-violet-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      {f.is_id_field ? '✓ ID' : 'Set ID'}
+                    </button>
+                  </div>
+                  <div className="col-span-2">
+                    <button type="button" onClick={() => updateReviewField(idx, { is_status_field: !f.is_status_field })}
+                      className={`px-2.5 py-1 rounded-lg text-xs border ${f.is_status_field ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      {f.is_status_field ? '✓ Status' : 'Set Status'}
+                    </button>
+                  </div>
+                  <div className="col-span-3">
+                    <select value={f.links_to || ''} onChange={e => updateReviewField(idx, { links_to: e.target.value })}
+                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="">— Not linked —</option>
+                      <option value="agency">Agency</option>
+                      <option value="project">Project</option>
+                      <option value="country">Country</option>
+                      <option value="department">Department</option>
+                      <option value="company">Company</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between mt-6">
+              <button onClick={() => { setReviewStep(null); }} className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-xl">Cancel</button>
+              <button onClick={confirmFieldsAndImport} disabled={reviewSaving}
+                className="px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
+                {reviewSaving ? 'Setting up…' : 'Looks good — import my data'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(analyzing || importing) && (
         <div className="fixed top-0 left-0 right-0 z-[60] flex items-center justify-center">
           <div className="mt-3 flex items-center gap-2 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl shadow-lg">
