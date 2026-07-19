@@ -8,8 +8,8 @@ import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], entityMappings = [], companyId, userEmail = '' }: {
-  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], countries = [], entityMappings = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; countries?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
@@ -37,6 +37,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // ─── Entity linking (agency, etc.) ───
   const [agencyList, setAgencyList] = useState<any[]>(agencies);
   const [deptList, setDeptList] = useState<any[]>(departments);
+  const [countryList, setCountryList] = useState<any[]>(countries);
   const [mappings, setMappings] = useState<any[]>(entityMappings);
   // Keep the last imported records so after mapping one entity type we can
   // re-check the next one (agency first, then department, ...).
@@ -384,6 +385,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const linkEntityConfig: Record<string, { label: string; plural: string; table: string; list: any[]; setList: any; makeRow: (name: string) => any }> = {
     agency: { label: 'agency', plural: 'agencies', table: 'agencies', list: agencyList, setList: setAgencyList, makeRow: (name: string) => ({ company_id: companyId, name, status: 'active' }) },
     department: { label: 'department', plural: 'departments', table: 'departments', list: deptList, setList: setDeptList, makeRow: (name: string) => ({ company_id: companyId, name }) },
+    country: { label: 'country', plural: 'countries', table: 'operations', list: countryList, setList: setCountryList, makeRow: (name: string) => ({ company_id: companyId, name }) },
   };
 
   // Check imported records for link-column values we don't recognise, one entity

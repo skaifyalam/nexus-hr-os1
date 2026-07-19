@@ -15,17 +15,60 @@ export default async function OperationsSettingsPage() {
     redirect('/dashboard');
   }
 
-  const { data: operations } = await supabase.from('operations').select('*').eq('company_id', profile?.company_id).order('created_at');
-  const { data: projects } = await supabase.from('projects').select('*').eq('company_id', profile?.company_id).order('created_at');
-  const { data: employeeCounts } = await supabase.from('employees').select('operation_id, current_project_id');
+  const companyId = profile?.company_id;
+  const [
+    { data: operations },
+    { data: projects },
+    { data: legacyEmpCounts },
+    { data: empFields },
+    { data: candFields },
+    { data: mappings },
+  ] = await Promise.all([
+    supabase.from('operations').select('*').eq('company_id', companyId).order('created_at'),
+    supabase.from('projects').select('*').eq('company_id', companyId).order('created_at'),
+    supabase.from('employees').select('operation_id, current_project_id'),
+    supabase.from('section_field_configs').select('field_key, links_to').eq('company_id', companyId).eq('section_key', 'employee'),
+    supabase.from('section_field_configs').select('field_key, links_to').eq('company_id', companyId).eq('section_key', 'candidate'),
+    supabase.from('entity_mappings').select('excel_value, mapped_id').eq('company_id', companyId).eq('entity_type', 'country'),
+  ]);
+
+  // Count people per COUNTRY (operations) from the universal sections too,
+  // matching by operation name or saved country mapping.
+  const countryCounts: Record<string, number> = {};
+  (operations || []).forEach((o: any) => { countryCounts[o.id] = 0; });
+  const resolver: Record<string, string> = {};
+  (operations || []).forEach((o: any) => { resolver[String(o.name).trim().toLowerCase()] = o.id; });
+  (mappings || []).forEach((m: any) => { if (m.mapped_id) resolver[String(m.excel_value).trim().toLowerCase()] = m.mapped_id; });
+
+  const countCountryIn = async (sectionKey: string, fieldConfigs: any[]) => {
+    const cf = (fieldConfigs || []).find((f: any) => f.links_to === 'country');
+    if (!cf) return;
+    let from = 0;
+    for (;;) {
+      const { data: recs } = await supabase.from('section_records')
+        .select('data').eq('company_id', companyId).eq('section_key', sectionKey).range(from, from + 999);
+      if (!recs || recs.length === 0) break;
+      recs.forEach((r: any) => {
+        const v = r.data?.[cf.field_key];
+        if (!v) return;
+        const id = resolver[String(v).trim().toLowerCase()];
+        if (id && countryCounts[id] !== undefined) countryCounts[id]++;
+      });
+      if (recs.length < 1000) break;
+      from += 1000;
+    }
+  };
+  await countCountryIn('employee', empFields || []);
+  await countCountryIn('candidate', candFields || []);
 
   return (
-    <Shell current="/settings/operations" profile={profile} sections={sections || []} companyId={profile?.company_id || ''}>
+    <Shell current="/settings/operations" profile={profile} sections={sections || []} companyId={companyId || ''}>
       <OperationsClient
         initialOperations={operations || []}
         initialProjects={projects || []}
-        employeeCounts={employeeCounts || []}
-        companyId={profile?.company_id || ''}
+        employeeCounts={legacyEmpCounts || []}
+        countryCounts={countryCounts}
+        companyId={companyId || ''}
       />
     </Shell>
   );

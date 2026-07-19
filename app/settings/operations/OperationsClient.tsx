@@ -4,8 +4,8 @@ import { Plus, Trash2, Edit2, X, Globe, Briefcase, Users, AlertCircle } from 'lu
 import { createClient } from '@/lib/supabase/client';
 
 export default function OperationsClient({
-  initialOperations, initialProjects, employeeCounts, companyId = '',
-}: { initialOperations: any[]; initialProjects: any[]; employeeCounts: any[]; companyId?: string }) {
+  initialOperations, initialProjects, employeeCounts, countryCounts = {}, companyId = '',
+}: { initialOperations: any[]; initialProjects: any[]; employeeCounts: any[]; countryCounts?: Record<string, number>; companyId?: string }) {
   const [operations, setOperations] = useState(initialOperations);
   const [projects, setProjects] = useState(initialProjects);
   const [opModal, setOpModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
@@ -15,7 +15,7 @@ export default function OperationsClient({
   const [error, setError] = useState('');
   const supabase = createClient();
 
-  const countEmployeesIn = (operationId: string) => employeeCounts.filter((e) => e.operation_id === operationId).length;
+  const countEmployeesIn = (operationId: string) => employeeCounts.filter((e) => e.operation_id === operationId).length + (countryCounts[operationId] || 0);
   const countEmployeesOnProject = (projectId: string) => employeeCounts.filter((e) => e.current_project_id === projectId).length;
 
   // ─── OPERATIONS (Countries) ────────────────────────────────
