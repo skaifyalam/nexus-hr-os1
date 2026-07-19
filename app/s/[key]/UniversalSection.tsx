@@ -8,8 +8,8 @@ import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], entityMappings = [], companyId, userEmail = '' }: {
-  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], entityMappings = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
@@ -36,7 +36,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
   // ─── Entity linking (agency, etc.) ───
   const [agencyList, setAgencyList] = useState<any[]>(agencies);
+  const [deptList, setDeptList] = useState<any[]>(departments);
   const [mappings, setMappings] = useState<any[]>(entityMappings);
+  // Keep the last imported records so after mapping one entity type we can
+  // re-check the next one (agency first, then department, ...).
+  const lastImportedRef = useRef<any[]>([]);
   // When an import finds unknown agency values, we collect them here to ask the user.
   const [mapModal, setMapModal] = useState<null | {
     entityType: string; fieldKey: string; unknowns: string[];
@@ -375,31 +379,48 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
   // Called when a status value changes anywhere (inline or kanban)
   // Detect agency-linked columns with values not yet recognised, and prompt to map.
+  // Config for each POWERED link entity: where its rows live and how to make one.
+  // (project / country / company are selectable on fields but not yet powered.)
+  const linkEntityConfig: Record<string, { label: string; plural: string; table: string; list: any[]; setList: any; makeRow: (name: string) => any }> = {
+    agency: { label: 'agency', plural: 'agencies', table: 'agencies', list: agencyList, setList: setAgencyList, makeRow: (name: string) => ({ company_id: companyId, name, status: 'active' }) },
+    department: { label: 'department', plural: 'departments', table: 'departments', list: deptList, setList: setDeptList, makeRow: (name: string) => ({ company_id: companyId, name }) },
+  };
+
+  // Check imported records for link-column values we don't recognise, one entity
+  // type at a time (agency first, then department). Opens the mapping step for
+  // the first type with unknowns; after saving, the next type is checked.
   const detectUnknownLinks = (importedRecords: any[]) => {
-    const agencyField = fields.find((f: any) => f.links_to === 'agency');
-    if (!agencyField) return;
-    const knownNames = new Set(agencyList.map(a => String(a.name).trim().toLowerCase()));
-    const mapped = new Set(mappings.filter(m => m.entity_type === 'agency').map(m => String(m.excel_value).trim().toLowerCase()));
-    const unknowns = new Set<string>();
-    importedRecords.forEach(r => {
-      const v = r.data?.[agencyField.field_key];
-      if (!v) return;
-      const key = String(v).trim().toLowerCase();
-      if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
-    });
-    if (unknowns.size === 0) return;
-    const choices: any = {};
-    Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
-    setMapModal({ entityType: 'agency', fieldKey: agencyField.field_key, unknowns: Array.from(unknowns), choices });
+    lastImportedRef.current = importedRecords;
+    for (const entityType of Object.keys(linkEntityConfig)) {
+      const cfg = linkEntityConfig[entityType];
+      const linkField = fields.find((f: any) => f.links_to === entityType);
+      if (!linkField) continue;
+      const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
+      const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
+      const unknowns = new Set<string>();
+      importedRecords.forEach(r => {
+        const v = r.data?.[linkField.field_key];
+        if (!v) return;
+        const key = String(v).trim().toLowerCase();
+        if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
+      });
+      if (unknowns.size === 0) continue;
+      const choices: any = {};
+      Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+      setMapModal({ entityType, fieldKey: linkField.field_key, unknowns: Array.from(unknowns), choices });
+      return; // one entity type at a time; the next is checked after saving
+    }
   };
 
   // Save the user's agency mappings: create new agencies where chosen, and record
   // every mapping so future imports link automatically.
   const saveMappings = async () => {
     if (!mapModal) return;
+    const cfg = linkEntityConfig[mapModal.entityType];
+    if (!cfg) { setMapModal(null); return; }
     setMapSaving(true);
     const newMappingRows: any[] = [];
-    const createdAgencies: any[] = [];
+    const createdRows: any[] = [];
     for (const val of mapModal.unknowns) {
       const choice = mapModal.choices[val];
       if (!choice || choice.mode === 'skip') continue;
@@ -407,19 +428,20 @@ export default function UniversalSection({ section, initialFields, initialRecord
       let mappedName = '';
       if (choice.mode === 'existing' && choice.existingId) {
         mappedId = choice.existingId;
-        mappedName = agencyList.find(a => a.id === choice.existingId)?.name || val;
+        mappedName = cfg.list.find((a: any) => a.id === choice.existingId)?.name || val;
       } else if (choice.mode === 'new') {
         const name = (choice.newName || val).trim();
-        const existing = agencyList.find(a => String(a.name).trim().toLowerCase() === name.toLowerCase());
+        const existing = cfg.list.find((a: any) => String(a.name).trim().toLowerCase() === name.toLowerCase());
         if (existing) { mappedId = existing.id; mappedName = existing.name; }
         else {
-          const { data: newAg } = await supabase.from('agencies')
-            .insert({ company_id: companyId, name, status: 'active' }).select().single();
-          if (newAg) { mappedId = newAg.id; mappedName = newAg.name; createdAgencies.push(newAg); }
+          const { data: newRow, error: rowErr } = await supabase.from(cfg.table)
+            .insert(cfg.makeRow(name)).select().single();
+          if (rowErr) { alert(`Could not create ${cfg.label} "${name}": ${rowErr.message}`); continue; }
+          if (newRow) { mappedId = newRow.id; mappedName = newRow.name; createdRows.push(newRow); }
         }
       }
       if (mappedId) {
-        newMappingRows.push({ company_id: companyId, entity_type: 'agency', excel_value: val, mapped_id: mappedId, mapped_name: mappedName });
+        newMappingRows.push({ company_id: companyId, entity_type: mapModal.entityType, excel_value: val, mapped_id: mappedId, mapped_name: mappedName });
       }
     }
     if (newMappingRows.length > 0) {
@@ -427,19 +449,49 @@ export default function UniversalSection({ section, initialFields, initialRecord
       // updates cleanly), then insert. Avoids ON CONFLICT constraint mismatch.
       const valsToMap = newMappingRows.map(m => m.excel_value);
       await supabase.from('entity_mappings')
-        .delete().eq('company_id', companyId).eq('entity_type', 'agency').in('excel_value', valsToMap);
+        .delete().eq('company_id', companyId).eq('entity_type', mapModal.entityType).in('excel_value', valsToMap);
       const { data: savedMaps, error: mapErr } = await supabase.from('entity_mappings')
         .insert(newMappingRows).select();
       if (mapErr) {
-        alert(`Could not save the agency links: ${mapErr.message}`);
+        alert(`Could not save the ${cfg.label} links: ${mapErr.message}`);
         setMapSaving(false);
         return;
       }
       if (savedMaps) setMappings(p => [...p, ...savedMaps]);
     }
-    if (createdAgencies.length > 0) setAgencyList(p => [...p, ...createdAgencies]);
+    if (createdRows.length > 0) cfg.setList((p: any[]) => [...p, ...createdRows]);
     setMapSaving(false);
     setMapModal(null);
+    // Check the NEXT entity type (e.g. department after agency) on the same import.
+    // Freshly saved mappings/lists aren't in state yet inside this closure, so pass
+    // them forward via a short delay to let state settle, then re-detect.
+    setTimeout(() => { if (lastImportedRef.current.length > 0) detectUnknownLinksNext(mapModal.entityType); }, 300);
+  };
+
+  // Re-run detection for entity types AFTER the one just saved.
+  const detectUnknownLinksNext = (justSaved: string) => {
+    const types = Object.keys(linkEntityConfig);
+    const startIdx = types.indexOf(justSaved) + 1;
+    for (let i = startIdx; i < types.length; i++) {
+      const entityType = types[i];
+      const cfg = linkEntityConfig[entityType];
+      const linkField = fields.find((f: any) => f.links_to === entityType);
+      if (!linkField) continue;
+      const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
+      const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
+      const unknowns = new Set<string>();
+      lastImportedRef.current.forEach(r => {
+        const v = r.data?.[linkField.field_key];
+        if (!v) return;
+        const key = String(v).trim().toLowerCase();
+        if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
+      });
+      if (unknowns.size === 0) continue;
+      const choices: any = {};
+      Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+      setMapModal({ entityType, fieldKey: linkField.field_key, unknowns: Array.from(unknowns), choices });
+      return;
+    }
   };
 
   const requestStatusChange = (record: any, newStatus: string) => {
@@ -542,15 +594,18 @@ export default function UniversalSection({ section, initialFields, initialRecord
     setEditFieldId(null);
     // If this field was just marked as an agency link, check existing records for
     // unknown agency values so the user can map them right away.
-    if (efLinksTo === 'agency') {
-      const updatedFields = fields.map(f => f.id === editFieldId ? { ...f, links_to: 'agency' } : f);
-      const agencyField = updatedFields.find((f: any) => f.links_to === 'agency');
-      if (agencyField) {
-        const knownNames = new Set(agencyList.map(a => String(a.name).trim().toLowerCase()));
-        const mapped = new Set(mappings.filter(m => m.entity_type === 'agency').map(m => String(m.excel_value).trim().toLowerCase()));
+    // If this field was just marked as a POWERED link (agency/department), check
+    // existing records for unknown values so the user can map them right away.
+    const cfg = linkEntityConfig[efLinksTo];
+    if (cfg) {
+      const updatedFields = fields.map(f => f.id === editFieldId ? { ...f, links_to: efLinksTo } : f);
+      const linkField = updatedFields.find((f: any) => f.links_to === efLinksTo);
+      if (linkField) {
+        const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
+        const mapped = new Set(mappings.filter(m => m.entity_type === efLinksTo).map(m => String(m.excel_value).trim().toLowerCase()));
         const unknowns = new Set<string>();
         records.forEach(r => {
-          const v = r.data?.[agencyField.field_key];
+          const v = r.data?.[linkField.field_key];
           if (!v) return;
           const key = String(v).trim().toLowerCase();
           if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
@@ -558,7 +613,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
         if (unknowns.size > 0) {
           const choices: any = {};
           Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
-          setMapModal({ entityType: 'agency', fieldKey: agencyField.field_key, unknowns: Array.from(unknowns), choices });
+          setMapModal({ entityType: efLinksTo, fieldKey: linkField.field_key, unknowns: Array.from(unknowns), choices });
         }
       }
     }
@@ -1371,6 +1426,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
                         <select value={efLinksTo} onChange={e => setEfLinksTo(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 mt-0.5">
                           <option value="">— Not linked —</option>
                           <option value="agency">Agency</option>
+                          <option value="project">Project</option>
+                          <option value="country">Country</option>
+                          <option value="department">Department</option>
+                          <option value="company">Company</option>
                         </select>
                       </div>
                       <div className="flex gap-2">
@@ -1420,8 +1479,8 @@ export default function UniversalSection({ section, initialFields, initialRecord
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
             <div className="px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-900">Link agencies from your file</h2>
-              <p className="text-xs text-slate-500 mt-0.5">We found agency values in your upload that aren’t linked yet. Tell us what each one is — we’ll remember it for next time.</p>
+              <h2 className="text-base font-semibold text-slate-900">Link {linkEntityConfig[mapModal.entityType]?.plural || 'values'} from your file</h2>
+              <p className="text-xs text-slate-500 mt-0.5">We found {linkEntityConfig[mapModal.entityType]?.label || 'linked'} values in your upload that aren’t linked yet. Tell us what each one is — we’ll remember it for next time.</p>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
               {mapModal.unknowns.map(val => {
@@ -1431,20 +1490,20 @@ export default function UniversalSection({ section, initialFields, initialRecord
                     <p className="text-sm font-medium text-slate-800 mb-2">“{val}”</p>
                     <div className="flex flex-wrap gap-2 mb-2">
                       <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'new', newName: val } } }))}
-                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'new' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>Create new agency</button>
-                      <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'existing', existingId: agencyList[0]?.id } } }))}
-                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'existing' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`} disabled={agencyList.length === 0}>Link to existing</button>
+                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'new' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>Create new {linkEntityConfig[mapModal.entityType]?.label || 'entry'}</button>
+                      <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'existing', existingId: (linkEntityConfig[mapModal.entityType]?.list || [])[0]?.id } } }))}
+                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'existing' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`} disabled={(linkEntityConfig[mapModal.entityType]?.list || []).length === 0}>Link to existing</button>
                       <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'skip' } } }))}
                         className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'skip' ? 'bg-slate-500 text-white border-slate-500' : 'bg-white border-slate-200 text-slate-600'}`}>Skip</button>
                     </div>
                     {choice.mode === 'new' && (
                       <input value={choice.newName || ''} onChange={e => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'new', newName: e.target.value } } }))}
-                        placeholder="Proper agency name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                        placeholder={`Proper ${linkEntityConfig[mapModal.entityType]?.label || ''} name`} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                     )}
                     {choice.mode === 'existing' && (
                       <select value={choice.existingId || ''} onChange={e => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'existing', existingId: e.target.value } } }))}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        {agencyList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        {(linkEntityConfig[mapModal.entityType]?.list || []).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                       </select>
                     )}
                   </div>

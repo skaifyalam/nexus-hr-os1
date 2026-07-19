@@ -3,14 +3,14 @@ import { useState } from 'react';
 import { Plus, Edit2, Trash2, X, AlertCircle, Building2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-export default function DepartmentsClient({ initialDepartments, empCounts, companyId }: { initialDepartments: any[]; empCounts: any[]; companyId: string }) {
+export default function DepartmentsClient({ initialDepartments, memberCounts, companyId }: { initialDepartments: any[]; memberCounts: Record<string, number>; companyId: string }) {
   const [departments, setDepartments] = useState(initialDepartments);
   const [modal, setModal] = useState<{ open: boolean; editing: any | null }>({ open: false, editing: null });
   const [form, setForm] = useState({ name: '', code: '' });
   const [error, setError] = useState('');
   const supabase = createClient();
 
-  const countFor = (id: string) => empCounts.filter((e) => e.department_id === id).length;
+  const countFor = (id: string) => memberCounts[id] || 0;
 
   const openAdd = () => { setForm({ name: '', code: '' }); setModal({ open: true, editing: null }); setError(''); };
   const openEdit = (d: any) => { setForm({ name: d.name, code: d.code || '' }); setModal({ open: true, editing: d.id }); setError(''); };

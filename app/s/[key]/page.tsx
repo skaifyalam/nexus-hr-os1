@@ -70,8 +70,9 @@ export default async function SectionPage({ params }: { params: { key: string } 
   }
 
   // For entity-linking (agency etc.): load the company's agencies and any saved mappings.
-  const [{ data: agencies }, { data: entityMappings }] = await Promise.all([
+  const [{ data: agencies }, { data: departments }, { data: entityMappings }] = await Promise.all([
     supabase.from('agencies').select('id, name').eq('company_id', profile?.company_id).order('name'),
+    supabase.from('departments').select('id, name').eq('company_id', profile?.company_id).order('name'),
     supabase.from('entity_mappings').select('*').eq('company_id', profile?.company_id),
   ]);
 
@@ -84,6 +85,7 @@ export default async function SectionPage({ params }: { params: { key: string } 
         initialStageFlows={stageFlows || []}
         remobs={remobs}
         agencies={agencies || []}
+        departments={departments || []}
         entityMappings={entityMappings || []}
         companyId={profile?.company_id || ''}
         userEmail={user?.email || ''}
