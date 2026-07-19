@@ -416,6 +416,67 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
   // Save the user's agency mappings: create new agencies where chosen, and record
   // every mapping so future imports link automatically.
+  // ── NORMALIZATION ──
+  // After a mapping is confirmed (e.g. "S.013" → "Marjan"), rewrite the stored
+  // value to the canonical name in EVERY section that has a field linking to this
+  // entity type — so the same entity reads identically everywhere (employee,
+  // recruitment, etc.). The original value is preserved in entity_mappings as
+  // audit history. Only rewrites where the value actually differs.
+  const normalizeAcrossSections = async (entityType: string, pairs: { from: string; to: string }[]) => {
+    const changing = pairs.filter(p => p.from.trim().toLowerCase() !== p.to.trim().toLowerCase());
+    if (changing.length === 0) return;
+
+    // Which fields, in which sections, link to this entity type?
+    const { data: linkFields } = await supabase.from('section_field_configs')
+      .select('section_key, field_key').eq('company_id', companyId).eq('links_to', entityType);
+    if (!linkFields || linkFields.length === 0) return;
+
+    const fromToMap = new Map(changing.map(p => [p.from.trim().toLowerCase(), p.to]));
+
+    for (const lf of linkFields) {
+      // Page through this section's records and rewrite matching values.
+      let from = 0;
+      for (;;) {
+        const { data: recs } = await supabase.from('section_records')
+          .select('id, data').eq('company_id', companyId).eq('section_key', lf.section_key)
+          .range(from, from + 499);
+        if (!recs || recs.length === 0) break;
+
+        const updates: { id: string; data: any }[] = [];
+        recs.forEach((r: any) => {
+          const cur = r.data?.[lf.field_key];
+          if (cur == null || cur === '') return;
+          const canonical = fromToMap.get(String(cur).trim().toLowerCase());
+          if (canonical && String(cur) !== canonical) {
+            updates.push({ id: r.id, data: { ...r.data, [lf.field_key]: canonical } });
+          }
+        });
+
+        // Write the changes in parallel batches.
+        for (let i = 0; i < updates.length; i += 50) {
+          const slice = updates.slice(i, i + 50);
+          await Promise.all(slice.map(u =>
+            supabase.from('section_records').update({ data: u.data }).eq('id', u.id)
+          ));
+        }
+
+        if (recs.length < 500) break;
+        from += 500;
+      }
+
+      // If we just normalized THIS open section, refresh its in-memory records too.
+      if (lf.section_key === section.section_key) {
+        setRecords(p => p.map(r => {
+          const cur = r.data?.[lf.field_key];
+          if (cur == null || cur === '') return r;
+          const canonical = fromToMap.get(String(cur).trim().toLowerCase());
+          return (canonical && String(cur) !== canonical)
+            ? { ...r, data: { ...r.data, [lf.field_key]: canonical } } : r;
+        }));
+      }
+    }
+  };
+
   const saveMappings = async () => {
     if (!mapModal) return;
     const cfg = linkEntityConfig[mapModal.entityType];
@@ -462,6 +523,16 @@ export default function UniversalSection({ section, initialFields, initialRecord
       if (savedMaps) setMappings(p => [...p, ...savedMaps]);
     }
     if (createdRows.length > 0) cfg.setList((p: any[]) => [...p, ...createdRows]);
+
+    // NORMALIZE: rewrite the stored values to the canonical names everywhere,
+    // so this entity reads identically across all sections. Original values are
+    // preserved as history in entity_mappings (audit trail).
+    const pairs = newMappingRows.map(m => ({ from: m.excel_value, to: m.mapped_name }));
+    if (pairs.length > 0) {
+      setMapSaving(true);
+      try { await normalizeAcrossSections(mapModal.entityType, pairs); } catch (e) { /* non-fatal */ }
+    }
+
     setMapSaving(false);
     setMapModal(null);
     // Check the NEXT entity type (e.g. department after agency) on the same import.
@@ -752,6 +823,16 @@ export default function UniversalSection({ section, initialFields, initialRecord
             let cellValue = row[mk];
             if (f.field_type === 'date' && typeof cellValue === 'number') {
               cellValue = excelSerialToISODate(cellValue);
+            }
+            // AUTO-NORMALIZE: if this column links to an entity and the incoming
+            // value has a known mapping (e.g. "S.013" → "Marjan"), store the
+            // canonical name so data stays uniform everywhere.
+            if (f.links_to && cellValue != null && cellValue !== '') {
+              const hit = mappings.find(m =>
+                m.entity_type === f.links_to &&
+                String(m.excel_value).trim().toLowerCase() === String(cellValue).trim().toLowerCase()
+              );
+              if (hit && hit.mapped_name) cellValue = hit.mapped_name;
             }
             data[f.field_key] = cellValue;
           }
