@@ -581,6 +581,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
     return new Promise<void>((resolve) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
+     try {
       const wb = XLSX.read(e.target?.result, { type: 'binary' });
       const rows: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
       const valid = rows.filter(r => Object.values(r).some(v => v !== ''));
@@ -699,25 +700,48 @@ export default function UniversalSection({ section, initialFields, initialRecord
           }
         });
         const activeIdField = workingFields.find((f: any) => f.is_id_field);
+        // The ID VALUE that came from the file (if any). Do NOT generate here — we
+        // only generate for genuinely new rows, after we know it's not a duplicate.
         let recordId = activeIdField ? data[activeIdField.field_key] : null;
-        if (activeIdField && !recordId) {
-          const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
-          recordId = idVal; data[activeIdField.field_key] = idVal;
-        }
-        newRecords.push({ company_id: companyId, section_key: section.section_key, record_id: recordId, data });
+        // A content signature used to match rows that have no ID in the file, so a
+        // re-import updates the same person instead of inserting a duplicate.
+        const sigFields = workingFields
+          .filter((f: any) => !f.is_id_field && !f.is_status_field)
+          .slice(0, 4)
+          .map((f: any) => String(data[f.field_key] ?? '').trim().toLowerCase())
+          .join('|');
+        newRecords.push({ company_id: companyId, section_key: section.section_key, record_id: recordId, data, _sig: sigFields });
       }
       if (newRecords.length > 0) {
-        // UPSERT: update existing records (matched by record_id), insert new ones
+        // Build lookup maps for matching existing records:
+        //  - by record_id (stable ID)
+        //  - by content signature (for rows with no ID in the file)
         const existingById = new Map(records.filter(r => r.record_id).map(r => [String(r.record_id).trim(), r]));
+        const sigOf = (rec: any) => {
+          const flds = workingFields.filter((f: any) => !f.is_id_field && !f.is_status_field).slice(0, 4);
+          return flds.map((f: any) => String(rec.data?.[f.field_key] ?? '').trim().toLowerCase()).join('|');
+        };
+        const existingBySig = new Map<string, any>();
+        records.forEach(r => { const s = sigOf(r); if (s && s.replace(/\|/g, '')) existingBySig.set(s, r); });
+
+        const activeIdField = workingFields.find((f: any) => f.is_id_field);
         const toInsert: any[] = [];
         const toUpdate: { id: string; data: any }[] = [];
 
         for (const nr of newRecords) {
-          const match = nr.record_id ? existingById.get(String(nr.record_id).trim()) : null;
+          let match = nr.record_id ? existingById.get(String(nr.record_id).trim()) : null;
+          // No ID match? Try matching by content signature to avoid duplicates.
+          if (!match && nr._sig && nr._sig.replace(/\|/g, '')) match = existingBySig.get(nr._sig);
           if (match) {
             const merged = { ...match.data, ...nr.data };
             toUpdate.push({ id: match.id, data: merged });
           } else {
+            // Genuinely new — generate an ID now if the section uses one.
+            if (activeIdField && !nr.record_id) {
+              const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
+              nr.record_id = idVal; nr.data[activeIdField.field_key] = idVal;
+            }
+            delete nr._sig;
             toInsert.push(nr);
           }
         }
@@ -762,9 +786,13 @@ export default function UniversalSection({ section, initialFields, initialRecord
         // recognise (not an existing agency, not already mapped) and ask the user.
         detectUnknownLinks([...inserted, ...updatedList]);
       }
-      setImporting(false);
-      setImportMsg('');
-      resolve();
+     } catch (err: any) {
+       setError(`Import failed: ${err?.message || 'unexpected error'}`);
+     } finally {
+       setImporting(false);
+       setImportMsg('');
+       resolve();
+     }
     };
     reader.readAsBinaryString(file);
     });
