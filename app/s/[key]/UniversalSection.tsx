@@ -391,11 +391,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // Check imported records for link-column values we don't recognise, one entity
   // type at a time (agency first, then department). Opens the mapping step for
   // the first type with unknowns; after saving, the next type is checked.
-  const detectUnknownLinks = (importedRecords: any[]) => {
+  const detectUnknownLinks = (importedRecords: any[], fieldsToUse?: any[]) => {
     lastImportedRef.current = importedRecords;
+    const activeFields = fieldsToUse || fields;
     for (const entityType of Object.keys(linkEntityConfig)) {
       const cfg = linkEntityConfig[entityType];
-      const linkField = fields.find((f: any) => f.links_to === entityType);
+      const linkField = activeFields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
       const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
@@ -484,6 +485,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
     setMapSaving(true);
     const newMappingRows: any[] = [];
     const createdRows: any[] = [];
+    // Track entities created (or found) during THIS save, so two Excel values that
+    // resolve to the same name don't try to insert it twice (which fails and caused
+    // "not all agencies were created"). Keyed by lowercased name.
+    const resolvedByName = new Map<string, { id: string; name: string }>();
+    cfg.list.forEach((a: any) => resolvedByName.set(String(a.name).trim().toLowerCase(), { id: a.id, name: a.name }));
+
     for (const val of mapModal.unknowns) {
       const choice = mapModal.choices[val];
       if (!choice || choice.mode === 'skip') continue;
@@ -494,13 +501,18 @@ export default function UniversalSection({ section, initialFields, initialRecord
         mappedName = cfg.list.find((a: any) => a.id === choice.existingId)?.name || val;
       } else if (choice.mode === 'new') {
         const name = (choice.newName || val).trim();
-        const existing = cfg.list.find((a: any) => String(a.name).trim().toLowerCase() === name.toLowerCase());
-        if (existing) { mappedId = existing.id; mappedName = existing.name; }
+        const nameKey = name.toLowerCase();
+        const already = resolvedByName.get(nameKey);
+        if (already) { mappedId = already.id; mappedName = already.name; }
         else {
           const { data: newRow, error: rowErr } = await supabase.from(cfg.table)
             .insert(cfg.makeRow(name)).select().single();
           if (rowErr) { alert(`Could not create ${cfg.label} "${name}": ${rowErr.message}`); continue; }
-          if (newRow) { mappedId = newRow.id; mappedName = newRow.name; createdRows.push(newRow); }
+          if (newRow) {
+            mappedId = newRow.id; mappedName = newRow.name;
+            createdRows.push(newRow);
+            resolvedByName.set(nameKey, { id: newRow.id, name: newRow.name });
+          }
         }
       }
       if (mappedId) {
@@ -922,7 +934,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
 
         // After importing, check any agency-linked column for values we don't
         // recognise (not an existing agency, not already mapped) and ask the user.
-        detectUnknownLinks([...inserted, ...updatedList]);
+        detectUnknownLinks([...inserted, ...updatedList], workingFields);
       }
      } catch (err: any) {
        setError(`Import failed: ${err?.message || 'unexpected error'}`);
