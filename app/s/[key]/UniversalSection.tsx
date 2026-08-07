@@ -8,8 +8,8 @@ import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], countries = [], entityMappings = [], companyId, userEmail = '' }: {
-  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; countries?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], countries = [], projects = [], entityMappings = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; countries?: any[]; projects?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
@@ -38,6 +38,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [agencyList, setAgencyList] = useState<any[]>(agencies);
   const [deptList, setDeptList] = useState<any[]>(departments);
   const [countryList, setCountryList] = useState<any[]>(countries);
+  const [projectList, setProjectList] = useState<any[]>(projects);
   const [mappings, setMappings] = useState<any[]>(entityMappings);
   // Keep the last imported records so after mapping one entity type we can
   // re-check the next one (agency first, then department, ...).
@@ -382,10 +383,14 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // Detect agency-linked columns with values not yet recognised, and prompt to map.
   // Config for each POWERED link entity: where its rows live and how to make one.
   // (project / country / company are selectable on fields but not yet powered.)
-  const linkEntityConfig: Record<string, { label: string; plural: string; table: string; list: any[]; setList: any; makeRow: (name: string) => any }> = {
+  // nameCol = the DB column holding the display name (defaults to 'name'). The
+  // projects table uses 'project_name', so we alias it back to `name` on select
+  // (in page.tsx and in saveMappings) — keeping the whole mechanism uniform.
+  const linkEntityConfig: Record<string, { label: string; plural: string; table: string; nameCol?: string; list: any[]; setList: any; makeRow: (name: string) => any }> = {
     agency: { label: 'agency', plural: 'agencies', table: 'agencies', list: agencyList, setList: setAgencyList, makeRow: (name: string) => ({ company_id: companyId, name, status: 'active' }) },
     department: { label: 'department', plural: 'departments', table: 'departments', list: deptList, setList: setDeptList, makeRow: (name: string) => ({ company_id: companyId, name }) },
     country: { label: 'country', plural: 'countries', table: 'operations', list: countryList, setList: setCountryList, makeRow: (name: string) => ({ company_id: companyId, name }) },
+    project: { label: 'project', plural: 'projects', table: 'projects', nameCol: 'project_name', list: projectList, setList: setProjectList, makeRow: (name: string) => ({ company_id: companyId, project_name: name }) },
   };
 
   // Check imported records for link-column values we don't recognise, one entity
@@ -505,8 +510,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
         const already = resolvedByName.get(nameKey);
         if (already) { mappedId = already.id; mappedName = already.name; }
         else {
-          const { data: newRow, error: rowErr } = await supabase.from(cfg.table)
-            .insert(cfg.makeRow(name)).select().single();
+          const nameSel = cfg.nameCol && cfg.nameCol !== 'name' ? `id, name:${cfg.nameCol}` : 'id, name';
+          // `nameSel` is dynamic, so Supabase can't infer the row type — annotate as any.
+          const { data: newRow, error: rowErr }: any = await supabase.from(cfg.table)
+            .insert(cfg.makeRow(name)).select(nameSel).single();
           if (rowErr) { alert(`Could not create ${cfg.label} "${name}": ${rowErr.message}`); continue; }
           if (newRow) {
             mappedId = newRow.id; mappedName = newRow.name;

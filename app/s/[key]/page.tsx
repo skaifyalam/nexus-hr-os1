@@ -70,10 +70,12 @@ export default async function SectionPage({ params }: { params: { key: string } 
   }
 
   // For entity-linking (agency etc.): load the company's agencies and any saved mappings.
-  const [{ data: agencies }, { data: departments }, { data: countries }, { data: entityMappings }] = await Promise.all([
+  const [{ data: agencies }, { data: departments }, { data: countries }, { data: projects }, { data: entityMappings }] = await Promise.all([
     supabase.from('agencies').select('id, name').eq('company_id', profile?.company_id).order('name'),
     supabase.from('departments').select('id, name').eq('company_id', profile?.company_id).order('name'),
     supabase.from('operations').select('id, name').eq('company_id', profile?.company_id).order('name'),
+    // projects table uses project_name — alias to `name` so the linking mechanism is uniform
+    supabase.from('projects').select('id, name:project_name').eq('company_id', profile?.company_id).order('project_name'),
     supabase.from('entity_mappings').select('*').eq('company_id', profile?.company_id),
   ]);
 
@@ -88,6 +90,7 @@ export default async function SectionPage({ params }: { params: { key: string } 
         agencies={agencies || []}
         departments={departments || []}
         countries={countries || []}
+        projects={projects || []}
         entityMappings={entityMappings || []}
         companyId={profile?.company_id || ''}
         userEmail={user?.email || ''}
