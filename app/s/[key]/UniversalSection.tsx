@@ -527,37 +527,40 @@ export default function UniversalSection({ section, initialFields, initialRecord
       }
     }
     if (newMappingRows.length > 0) {
-      // The unique index is (company_id, entity_type, LOWER(excel_value)), so ALL
-      // conflict handling has to be case-insensitive or inserts 409.
-      // (1) Delete colliding existing rows matched by id — the JS client's .in() is
-      //     case-sensitive and would miss a differently-cased stale row (e.g. a
-      //     leftover "Marjan" vs an incoming "marjan"), leaving it to collide.
-      // (2) Dedupe the insert batch itself so two incoming values that lowercase to
-      //     the same string can't collide within one insert.
-      // Both were live sources of the 409s seen on re-import after prior test runs.
-      const lowerVals = new Set(newMappingRows.map(m => String(m.excel_value).trim().toLowerCase()));
-      const { data: existingMaps } = await supabase.from('entity_mappings')
-        .select('id, excel_value').eq('company_id', companyId).eq('entity_type', mapModal.entityType);
-      const idsToDelete = (existingMaps || [])
-        .filter((r: any) => lowerVals.has(String(r.excel_value).trim().toLowerCase()))
-        .map((r: any) => r.id);
-      if (idsToDelete.length > 0) {
-        await supabase.from('entity_mappings').delete().in('id', idsToDelete);
-      }
+      // Dedupe by lowercased value so one batch can't carry two values that
+      // collide under the (company_id, entity_type, LOWER(excel_value)) index.
       const seenLower = new Set<string>();
       const dedupedRows = newMappingRows.filter(m => {
         const k = String(m.excel_value).trim().toLowerCase();
         if (seenLower.has(k)) return false;
         seenLower.add(k); return true;
       });
-      const { data: savedMaps, error: mapErr } = await supabase.from('entity_mappings')
-        .insert(dedupedRows).select();
+      // Atomic upsert in the DB (ON CONFLICT DO UPDATE on the expression index).
+      // Replaces the old client-side delete-then-insert, which raced the strict
+      // lower(excel_value) index and 23505'd on re-mapping / stale rows.
+      const { error: mapErr } = await supabase.rpc('upsert_entity_mappings', {
+        p_entity_type: mapModal.entityType,
+        p_rows: dedupedRows.map(m => ({
+          excel_value: m.excel_value,
+          mapped_id: m.mapped_id || null,
+          mapped_name: m.mapped_name,
+        })),
+      });
       if (mapErr) {
         alert(`Could not save the ${cfg.label} links: ${mapErr.message}`);
         setMapSaving(false);
         return;
       }
-      if (savedMaps) setMappings(p => [...p, ...savedMaps]);
+      // Reflect the saved mappings in local state (replace any same-key entries).
+      const savedLocal = dedupedRows.map(m => ({
+        company_id: companyId, entity_type: mapModal.entityType,
+        excel_value: m.excel_value, mapped_id: m.mapped_id || null, mapped_name: m.mapped_name,
+      }));
+      setMappings(p => {
+        const keep = p.filter(x => !(x.entity_type === mapModal.entityType &&
+          savedLocal.some(s => String(s.excel_value).trim().toLowerCase() === String(x.excel_value).trim().toLowerCase())));
+        return [...keep, ...savedLocal];
+      });
     }
     if (createdRows.length > 0) cfg.setList((p: any[]) => [...p, ...createdRows]);
 
