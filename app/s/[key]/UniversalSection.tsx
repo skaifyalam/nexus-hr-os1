@@ -527,13 +527,31 @@ export default function UniversalSection({ section, initialFields, initialRecord
       }
     }
     if (newMappingRows.length > 0) {
-      // Remove any existing mappings for these same excel values first (so re-mapping
-      // updates cleanly), then insert. Avoids ON CONFLICT constraint mismatch.
-      const valsToMap = newMappingRows.map(m => m.excel_value);
-      await supabase.from('entity_mappings')
-        .delete().eq('company_id', companyId).eq('entity_type', mapModal.entityType).in('excel_value', valsToMap);
+      // The unique index is (company_id, entity_type, LOWER(excel_value)), so ALL
+      // conflict handling has to be case-insensitive or inserts 409.
+      // (1) Delete colliding existing rows matched by id — the JS client's .in() is
+      //     case-sensitive and would miss a differently-cased stale row (e.g. a
+      //     leftover "Marjan" vs an incoming "marjan"), leaving it to collide.
+      // (2) Dedupe the insert batch itself so two incoming values that lowercase to
+      //     the same string can't collide within one insert.
+      // Both were live sources of the 409s seen on re-import after prior test runs.
+      const lowerVals = new Set(newMappingRows.map(m => String(m.excel_value).trim().toLowerCase()));
+      const { data: existingMaps } = await supabase.from('entity_mappings')
+        .select('id, excel_value').eq('company_id', companyId).eq('entity_type', mapModal.entityType);
+      const idsToDelete = (existingMaps || [])
+        .filter((r: any) => lowerVals.has(String(r.excel_value).trim().toLowerCase()))
+        .map((r: any) => r.id);
+      if (idsToDelete.length > 0) {
+        await supabase.from('entity_mappings').delete().in('id', idsToDelete);
+      }
+      const seenLower = new Set<string>();
+      const dedupedRows = newMappingRows.filter(m => {
+        const k = String(m.excel_value).trim().toLowerCase();
+        if (seenLower.has(k)) return false;
+        seenLower.add(k); return true;
+      });
       const { data: savedMaps, error: mapErr } = await supabase.from('entity_mappings')
-        .insert(newMappingRows).select();
+        .insert(dedupedRows).select();
       if (mapErr) {
         alert(`Could not save the ${cfg.label} links: ${mapErr.message}`);
         setMapSaving(false);
