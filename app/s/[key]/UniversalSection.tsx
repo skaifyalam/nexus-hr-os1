@@ -895,7 +895,8 @@ export default function UniversalSection({ section, initialFields, initialRecord
           } else {
             // Genuinely new — generate an ID now if the section uses one.
             if (activeIdField && !nr.record_id) {
-              const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
+              const { data: idVal, error: idErr } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
+              if (idErr) throw new Error(`ID generation failed: ${idErr.message}`);
               nr.record_id = idVal; nr.data[activeIdField.field_key] = idVal;
             }
             delete nr._sig;
@@ -928,9 +929,14 @@ export default function UniversalSection({ section, initialFields, initialRecord
           // Insert in batches too (very large single inserts can time out)
           const BATCH = 500;
           for (let i = 0; i < toInsert.length; i += BATCH) {
-            const { data } = await supabase.from('section_records').insert(toInsert.slice(i, i + BATCH)).select();
+            const { data, error: insErr } = await supabase.from('section_records').insert(toInsert.slice(i, i + BATCH)).select();
+            // Surface the real DB reason instead of silently dropping it (an RLS
+            // rejection or a bad column would otherwise leave the table empty with
+            // no explanation — the exact "silent failure" we must never allow).
+            if (insErr) throw new Error(`DB rejected the insert: ${insErr.message}${insErr.code ? ` [code ${insErr.code}]` : ''}${insErr.hint ? ` — hint: ${insErr.hint}` : ''}`);
             if (data) inserted = inserted.concat(data);
           }
+          if (inserted.length === 0) throw new Error(`Import saved 0 of ${toInsert.length} rows — nothing was written. This is almost always an RLS policy on section_records or a required/typed column mismatch.`);
         }
 
         setRecords(p => {
