@@ -1054,10 +1054,89 @@ export default function UniversalSection({ section, initialFields, initialRecord
     return base;
   })();
 
+  // The review overlay must be available in BOTH render branches. It used to live
+  // only in the configured UI below — so on a section with ZERO fields the component
+  // returned the empty state early and the review screen could never appear, leaving
+  // the user stuck on 'Upload your Excel' after every first upload.
+  const reviewOverlay = (
+    <>
+      {/* ── Review your fields (after upload, before import) ── */}
+      {reviewStep && (
+        <div className="fixed inset-0 z-[70] bg-slate-50 overflow-y-auto">
+          <div className="max-w-4xl mx-auto px-6 py-8">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-slate-900">Review your fields</h1>
+              <p className="text-sm text-slate-500 mt-1">We read your file and set up these columns. Please check them — mark which one is the ID, which shows the status/stage, and whether any column links to your Agencies, Projects, Countries, Departments, or Companies. Then continue.</p>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-500">
+                <div className="col-span-3">Column</div>
+                <div className="col-span-2">Type</div>
+                <div className="col-span-2">Is ID?</div>
+                <div className="col-span-2">Is Status?</div>
+                <div className="col-span-3">Links to</div>
+              </div>
+              {reviewStep.fields.map((f: any, idx: number) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-50 items-center">
+                  <div className="col-span-3">
+                    <input value={f.field_label} onChange={e => updateReviewField(idx, { field_label: e.target.value })}
+                      className="w-full text-sm font-medium text-slate-800 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1.5 py-1 focus:outline-none" />
+                  </div>
+                  <div className="col-span-2">
+                    <select value={f.field_type} onChange={e => updateReviewField(idx, { field_type: e.target.value })}
+                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="text">Text</option>
+                      <option value="number">Number</option>
+                      <option value="date">Date</option>
+                      <option value="dropdown">Dropdown</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <button type="button" onClick={() => updateReviewField(idx, { is_id_field: !f.is_id_field })}
+                      className={`px-2.5 py-1 rounded-lg text-xs border ${f.is_id_field ? 'bg-violet-600 text-white border-violet-600' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      {f.is_id_field ? '✓ ID' : 'Set ID'}
+                    </button>
+                  </div>
+                  <div className="col-span-2">
+                    <button type="button" onClick={() => updateReviewField(idx, { is_status_field: !f.is_status_field })}
+                      className={`px-2.5 py-1 rounded-lg text-xs border ${f.is_status_field ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      {f.is_status_field ? '✓ Status' : 'Set Status'}
+                    </button>
+                  </div>
+                  <div className="col-span-3">
+                    <select value={f.links_to || ''} onChange={e => updateReviewField(idx, { links_to: e.target.value })}
+                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                      <option value="">— Not linked —</option>
+                      <option value="agency">Agency</option>
+                      <option value="project">Project</option>
+                      <option value="country">Country Operation</option>
+                      <option value="department">Department</option>
+                      <option value="company">Company</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between mt-6">
+              <button onClick={() => { setReviewStep(null); }} className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-xl">Cancel</button>
+              <button onClick={confirmFieldsAndImport} disabled={reviewSaving}
+                className="px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
+                {reviewSaving ? 'Setting up…' : 'Looks good — import my data'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   // ═══ EMPTY STATE — section not configured yet ═══════════════
   if (!configured || forceSetup) {
     return (
       <div>
+        {reviewOverlay}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">{section.label}</h1>
           <p className="text-sm text-slate-500 mt-0.5">Set up this section by uploading your Excel — AI builds it to match your structure</p>
@@ -1129,76 +1208,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // ═══ CONFIGURED — full section UI ═══════════════════════════
   return (
     <div>
-      {/* ── Review your fields (after upload, before import) ── */}
-      {reviewStep && (
-        <div className="fixed inset-0 z-[70] bg-slate-50 overflow-y-auto">
-          <div className="max-w-4xl mx-auto px-6 py-8">
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold text-slate-900">Review your fields</h1>
-              <p className="text-sm text-slate-500 mt-1">We read your file and set up these columns. Please check them — mark which one is the ID, which shows the status/stage, and whether any column links to your Agencies, Projects, Countries, Departments, or Companies. Then continue.</p>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="grid grid-cols-12 gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-500">
-                <div className="col-span-3">Column</div>
-                <div className="col-span-2">Type</div>
-                <div className="col-span-2">Is ID?</div>
-                <div className="col-span-2">Is Status?</div>
-                <div className="col-span-3">Links to</div>
-              </div>
-              {reviewStep.fields.map((f: any, idx: number) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-50 items-center">
-                  <div className="col-span-3">
-                    <input value={f.field_label} onChange={e => updateReviewField(idx, { field_label: e.target.value })}
-                      className="w-full text-sm font-medium text-slate-800 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1.5 py-1 focus:outline-none" />
-                  </div>
-                  <div className="col-span-2">
-                    <select value={f.field_type} onChange={e => updateReviewField(idx, { field_type: e.target.value })}
-                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
-                      <option value="text">Text</option>
-                      <option value="number">Number</option>
-                      <option value="date">Date</option>
-                      <option value="dropdown">Dropdown</option>
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <button type="button" onClick={() => updateReviewField(idx, { is_id_field: !f.is_id_field })}
-                      className={`px-2.5 py-1 rounded-lg text-xs border ${f.is_id_field ? 'bg-violet-600 text-white border-violet-600' : 'bg-white border-slate-200 text-slate-500'}`}>
-                      {f.is_id_field ? '✓ ID' : 'Set ID'}
-                    </button>
-                  </div>
-                  <div className="col-span-2">
-                    <button type="button" onClick={() => updateReviewField(idx, { is_status_field: !f.is_status_field })}
-                      className={`px-2.5 py-1 rounded-lg text-xs border ${f.is_status_field ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-slate-200 text-slate-500'}`}>
-                      {f.is_status_field ? '✓ Status' : 'Set Status'}
-                    </button>
-                  </div>
-                  <div className="col-span-3">
-                    <select value={f.links_to || ''} onChange={e => updateReviewField(idx, { links_to: e.target.value })}
-                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
-                      <option value="">— Not linked —</option>
-                      <option value="agency">Agency</option>
-                      <option value="project">Project</option>
-                      <option value="country">Country Operation</option>
-                      <option value="department">Department</option>
-                      <option value="company">Company</option>
-                    </select>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-between mt-6">
-              <button onClick={() => { setReviewStep(null); }} className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-xl">Cancel</button>
-              <button onClick={confirmFieldsAndImport} disabled={reviewSaving}
-                className="px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
-                {reviewSaving ? 'Setting up…' : 'Looks good — import my data'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {reviewOverlay}
       {(analyzing || importing) && (
         <div className="fixed top-0 left-0 right-0 z-[60] flex items-center justify-center">
           <div className="mt-3 flex items-center gap-2 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl shadow-lg">
