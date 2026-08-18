@@ -21,7 +21,8 @@ For each column, return a JSON array of field configurations. Each object must h
 - "options": array of unique values if field_type is "dropdown" (max 20)
 - "required": true if mandatory
 - "display_order": order number starting from 1
-- "links_to": if this column appears to reference a known business entity that exists as its own list in the system, suggest which one. One of: "agency" (recruitment agency / manpower supplier / recruiter), "project" (project / site / location code), "department", "country", or null if it does not reference such an entity. Only suggest this for columns whose VALUES are names/codes of agencies, projects, departments, or countries — NOT for people's names, dates, numbers, or free text. When unsure, use null.
+- "links_to": if this column appears to reference a known business entity that exists as its own curated list in the system, suggest which one. One of: "agency" (recruitment agency / manpower supplier / recruiter), "project" (project / site / location code), "department", "country", or null if it does not reference such an entity. Only suggest this for columns whose VALUES are names/codes of agencies, projects, departments, or countries of operation — NOT for people's names, dates, numbers, or free text. When unsure, use null.
+- IMPORTANT — "country" here means the COMPANY'S COUNTRY OF OPERATION (a business unit that owns projects, e.g. "KSA Operation", "Kuwait Operation"). It does NOT mean a person's nationality or citizenship.
 
 Rules:
 - Salary/Amount/Cost/Budget → "number"
@@ -34,6 +35,7 @@ Rules:
 - ONLY a company-assigned sequential reference (Recruitment ID, Employee Code, internal Ref No) → "id_field"
 - Passport No, Iqama No, National ID, Visa No, Border No, Phone, Mobile → these are "text" (real-world numbers people type, NOT system-generated)
 - A column whose values look like agency/recruiter/manpower-supplier names (e.g. "IOC", "ABC Manpower", "Gulf Recruiters") → set "links_to": "agency". Still also give it a normal field_type (usually "dropdown" or "text").
+- Nationality / Citizenship / Nationality of Employee, or any column whose values are PEOPLE'S nationalities (e.g. "Indian", "Filipino", "Saudi", "Bangladeshi", "Nepalese") → "dropdown" with "links_to": null. NEVER link a nationality column to "country" — nationality describes a person, not a country of operation.
 
 Return ONLY a valid JSON array. No markdown, no explanation.`;
 

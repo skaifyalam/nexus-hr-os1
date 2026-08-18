@@ -211,11 +211,27 @@ export default function UniversalSection({ section, initialFields, initialRecord
         required: !!f.required, display_order: f.display_order || i + 1,
         links_to: f.links_to || null, is_status_field: !!f.is_status_field, is_system: false,
       }));
-      // Replace the section's non-system fields with the confirmed set
+      // Replace the section's non-system fields with the confirmed set.
+      // SAFETY: this used to delete first and insert after — so if the insert failed
+      // for ANY reason the section was left with ZERO fields and fell back to the
+      // "upload to build" empty state, destroying the setup. We now back the old
+      // fields up first and restore them if the insert fails, so a failed save can
+      // never lose the section's configuration.
+      const { data: backupFields } = await supabase.from('section_field_configs')
+        .select('*').eq('company_id', companyId).eq('section_key', section.section_key).eq('is_system', false);
+
       await supabase.from('section_field_configs')
         .delete().eq('company_id', companyId).eq('section_key', section.section_key).eq('is_system', false);
       const { error: insErr } = await supabase.from('section_field_configs').insert(rows);
-      if (insErr) { setError(`Could not save fields: ${insErr.message}`); setReviewSaving(false); return; }
+      if (insErr) {
+        // Put the old fields back exactly as they were, then report the real reason.
+        if (backupFields && backupFields.length > 0) {
+          await supabase.from('section_field_configs').insert(backupFields);
+        }
+        setError(`Could not save fields: ${insErr.message}${insErr.code ? ` [code ${insErr.code}]` : ''}${insErr.details ? ` — ${insErr.details}` : ''}. Your previous fields have been restored.`);
+        setReviewSaving(false);
+        return;
+      }
       await supabase.from('company_sections').update({ is_configured: true }).eq('id', section.id);
 
       const { data: reloaded } = await supabase.from('section_field_configs')
@@ -386,10 +402,14 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // nameCol = the DB column holding the display name (defaults to 'name'). The
   // projects table uses 'project_name', so we alias it back to `name` on select
   // (in page.tsx and in saveMappings) — keeping the whole mechanism uniform.
-  const linkEntityConfig: Record<string, { label: string; plural: string; table: string; nameCol?: string; list: any[]; setList: any; makeRow: (name: string) => any }> = {
+  // noCreate = this entity is CURATED BY THE USER and must never be invented from a
+  // spreadsheet. Country Operations (KSA Operation, Kuwait Operation) own projects and
+  // carry a country_code, so an uploaded file must only ever LINK to an existing one.
+  // (A Nationality column once auto-created 23 bogus "operations" — never again.)
+  const linkEntityConfig: Record<string, { label: string; plural: string; table: string; nameCol?: string; noCreate?: boolean; list: any[]; setList: any; makeRow: (name: string) => any }> = {
     agency: { label: 'agency', plural: 'agencies', table: 'agencies', list: agencyList, setList: setAgencyList, makeRow: (name: string) => ({ company_id: companyId, name, status: 'active' }) },
     department: { label: 'department', plural: 'departments', table: 'departments', list: deptList, setList: setDeptList, makeRow: (name: string) => ({ company_id: companyId, name }) },
-    country: { label: 'country', plural: 'countries', table: 'operations', list: countryList, setList: setCountryList, makeRow: (name: string) => ({ company_id: companyId, name }) },
+    country: { label: 'country operation', plural: 'country operations', table: 'operations', noCreate: true, list: countryList, setList: setCountryList, makeRow: (name: string) => ({ company_id: companyId, name }) },
     project: { label: 'project', plural: 'projects', table: 'projects', nameCol: 'project_name', list: projectList, setList: setProjectList, makeRow: (name: string) => ({ company_id: companyId, project_name: name }) },
   };
 
@@ -414,7 +434,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
       });
       if (unknowns.size === 0) continue;
       const choices: any = {};
-      Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+      // Curated entities can't be created from a file — default to linking instead.
+      Array.from(unknowns).forEach(u => {
+        choices[u] = cfg.noCreate
+          ? { mode: 'existing', existingId: cfg.list[0]?.id }
+          : { mode: 'new', newName: u };
+      });
       setMapModal({ entityType, fieldKey: linkField.field_key, unknowns: Array.from(unknowns), choices });
       return; // one entity type at a time; the next is checked after saving
     }
@@ -505,6 +530,8 @@ export default function UniversalSection({ section, initialFields, initialRecord
         mappedId = choice.existingId;
         mappedName = cfg.list.find((a: any) => a.id === choice.existingId)?.name || val;
       } else if (choice.mode === 'new') {
+        // Curated entities (Country Operation) can never be created from a file.
+        if (cfg.noCreate) continue;
         const name = (choice.newName || val).trim();
         const nameKey = name.toLowerCase();
         const already = resolvedByName.get(nameKey);
@@ -601,7 +628,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
       });
       if (unknowns.size === 0) continue;
       const choices: any = {};
-      Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+      // Curated entities can't be created from a file — default to linking instead.
+      Array.from(unknowns).forEach(u => {
+        choices[u] = cfg.noCreate
+          ? { mode: 'existing', existingId: cfg.list[0]?.id }
+          : { mode: 'new', newName: u };
+      });
       setMapModal({ entityType, fieldKey: linkField.field_key, unknowns: Array.from(unknowns), choices });
       return;
     }
@@ -725,7 +757,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
         });
         if (unknowns.size > 0) {
           const choices: any = {};
-          Array.from(unknowns).forEach(u => { choices[u] = { mode: 'new', newName: u }; });
+          Array.from(unknowns).forEach(u => {
+            choices[u] = cfg.noCreate
+              ? { mode: 'existing', existingId: cfg.list[0]?.id }
+              : { mode: 'new', newName: u };
+          });
           setMapModal({ entityType: efLinksTo, fieldKey: linkField.field_key, unknowns: Array.from(unknowns), choices });
         }
       }
@@ -1143,7 +1179,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                       <option value="">— Not linked —</option>
                       <option value="agency">Agency</option>
                       <option value="project">Project</option>
-                      <option value="country">Country</option>
+                      <option value="country">Country Operation</option>
                       <option value="department">Department</option>
                       <option value="company">Company</option>
                     </select>
@@ -1556,7 +1592,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
                           <option value="">— Not linked —</option>
                           <option value="agency">Agency</option>
                           <option value="project">Project</option>
-                          <option value="country">Country</option>
+                          <option value="country">Country Operation</option>
                           <option value="department">Department</option>
                           <option value="company">Company</option>
                         </select>
@@ -1618,8 +1654,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
                   <div key={val} className="border border-slate-100 rounded-xl p-3">
                     <p className="text-sm font-medium text-slate-800 mb-2">“{val}”</p>
                     <div className="flex flex-wrap gap-2 mb-2">
-                      <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'new', newName: val } } }))}
-                        className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'new' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>Create new {linkEntityConfig[mapModal.entityType]?.label || 'entry'}</button>
+                      {!linkEntityConfig[mapModal.entityType]?.noCreate && (
+                        <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'new', newName: val } } }))}
+                          className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'new' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}>Create new {linkEntityConfig[mapModal.entityType]?.label || 'entry'}</button>
+                      )}
                       <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'existing', existingId: (linkEntityConfig[mapModal.entityType]?.list || [])[0]?.id } } }))}
                         className={`px-2.5 py-1 rounded-lg border text-xs ${choice.mode === 'existing' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`} disabled={(linkEntityConfig[mapModal.entityType]?.list || []).length === 0}>Link to existing</button>
                       <button onClick={() => setMapModal(m => m && ({ ...m, choices: { ...m.choices, [val]: { mode: 'skip' } } }))}
