@@ -447,6 +447,32 @@ export default function UniversalSection({ section, initialFields, initialRecord
     }
   };
 
+  // ── ALWAYS-ON LINK CHECK ──
+  // Detection used to run ONLY straight after an import, so if anything was
+  // skipped (or a column was linked later) the user had no way to know whether
+  // linking was complete. Now every linked column is checked against the loaded
+  // records on every visit, and anything unlinked is surfaced as a banner.
+  // Silence therefore means "checked and clean", not "never looked".
+  const pendingLinks = useMemo(() => {
+    const out: { type: string; label: string; count: number }[] = [];
+    for (const entityType of Object.keys(linkEntityConfig)) {
+      const cfg = linkEntityConfig[entityType];
+      const linkField = fields.find((f: any) => f.links_to === entityType);
+      if (!linkField) continue;
+      const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
+      const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
+      const unknowns = new Set<string>();
+      records.forEach(r => {
+        const v = r.data?.[linkField.field_key];
+        if (!v) return;
+        const key = String(v).trim().toLowerCase();
+        if (!knownNames.has(key) && !mapped.has(key)) unknowns.add(String(v).trim());
+      });
+      if (unknowns.size > 0) out.push({ type: entityType, label: cfg.plural, count: unknowns.size });
+    }
+    return out;
+  }, [fields, records, mappings, agencyList, deptList, countryList, projectList, subCompanyList]);
+
   // Save the user's agency mappings: create new agencies where chosen, and record
   // every mapping so future imports link automatically.
   // ── NORMALIZATION ──
@@ -1236,6 +1262,20 @@ export default function UniversalSection({ section, initialFields, initialRecord
           <button onClick={() => { setForm({}); setEditingId(null); setAddOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-sm shadow-indigo-200"><Plus size={14} />Add Record</button>
         </div>
       </div>
+
+      {pendingLinks.length > 0 && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+          <GitBranch size={15} className="text-amber-600 flex-shrink-0" />
+          <p className="text-sm text-amber-800 flex-1">
+            <span className="font-medium">Some values aren't linked yet.</span>{' '}
+            {pendingLinks.map(p => `${p.count} ${p.label}`).join(', ')} in your data {pendingLinks.length === 1 && pendingLinks[0].count === 1 ? 'is' : 'are'} not connected to your lists.
+          </p>
+          <button onClick={() => detectUnknownLinks(records, fields)}
+            className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-shrink-0">
+            Review &amp; link
+          </button>
+        </div>
+      )}
 
       {hasActiveConfig && (
         <div className="flex gap-1 mb-4 bg-slate-100 rounded-xl p-1 w-fit">
