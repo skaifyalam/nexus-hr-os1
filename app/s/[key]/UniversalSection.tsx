@@ -415,6 +415,20 @@ export default function UniversalSection({ section, initialFields, initialRecord
     company: { label: 'company', plural: 'companies', table: 'sub_companies', list: subCompanyList, setList: setSubCompanyList, makeRow: (name: string) => ({ company_id: companyId, name }) },
   };
 
+  // A value counts as "already linked" ONLY if its mapping still points at an entity
+  // that EXISTS. Deleting an entity (e.g. clearing the projects list) used to leave
+  // its mappings behind — detection then treated those values as known, so it never
+  // re-asked, and counts resolved to dead ids and showed 0. Ignoring dead mappings
+  // makes the whole thing self-healing.
+  const mappedKeysFor = (entityType: string, list: any[]) => {
+    const liveIds = new Set((list || []).map((a: any) => String(a.id)));
+    return new Set(
+      mappings
+        .filter(m => m.entity_type === entityType && m.mapped_id && liveIds.has(String(m.mapped_id)))
+        .map(m => String(m.excel_value).trim().toLowerCase())
+    );
+  };
+
   // Check imported records for link-column values we don't recognise, one entity
   // type at a time (agency first, then department). Opens the mapping step for
   // the first type with unknowns; after saving, the next type is checked.
@@ -426,7 +440,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const linkField = activeFields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
-      const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
+      const mapped = mappedKeysFor(entityType, cfg.list);
       const unknowns = new Set<string>();
       importedRecords.forEach(r => {
         const v = r.data?.[linkField.field_key];
@@ -460,7 +474,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const linkField = fields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
-      const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
+      const mapped = mappedKeysFor(entityType, cfg.list);
       const unknowns = new Set<string>();
       records.forEach(r => {
         const v = r.data?.[linkField.field_key];
@@ -646,7 +660,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const linkField = fields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
-      const mapped = new Set(mappings.filter(m => m.entity_type === entityType).map(m => String(m.excel_value).trim().toLowerCase()));
+      const mapped = mappedKeysFor(entityType, cfg.list);
       const unknowns = new Set<string>();
       lastImportedRef.current.forEach(r => {
         const v = r.data?.[linkField.field_key];
@@ -775,7 +789,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const linkField = updatedFields.find((f: any) => f.links_to === efLinksTo);
       if (linkField) {
         const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
-        const mapped = new Set(mappings.filter(m => m.entity_type === efLinksTo).map(m => String(m.excel_value).trim().toLowerCase()));
+        const mapped = mappedKeysFor(efLinksTo, cfg.list);
         const unknowns = new Set<string>();
         records.forEach(r => {
           const v = r.data?.[linkField.field_key];
