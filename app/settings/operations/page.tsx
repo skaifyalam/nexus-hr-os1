@@ -23,6 +23,7 @@ export default async function OperationsSettingsPage() {
     { data: empFields },
     { data: candFields },
     { data: mappings },
+    { data: projMappings },
   ] = await Promise.all([
     supabase.from('operations').select('*').eq('company_id', companyId).order('created_at'),
     supabase.from('projects').select('*').eq('company_id', companyId).order('created_at'),
@@ -30,6 +31,7 @@ export default async function OperationsSettingsPage() {
     supabase.from('section_field_configs').select('field_key, links_to').eq('company_id', companyId).eq('section_key', 'employee'),
     supabase.from('section_field_configs').select('field_key, links_to').eq('company_id', companyId).eq('section_key', 'candidate'),
     supabase.from('entity_mappings').select('excel_value, mapped_id').eq('company_id', companyId).eq('entity_type', 'country'),
+    supabase.from('entity_mappings').select('excel_value, mapped_id').eq('company_id', companyId).eq('entity_type', 'project'),
   ]);
 
   // Count people per COUNTRY (operations) from the universal sections too,
@@ -61,6 +63,40 @@ export default async function OperationsSettingsPage() {
   await countCountryIn('employee', empFields || []);
   await countCountryIn('candidate', candFields || []);
 
+  // Count people per PROJECT from the universal sections, matching by project
+  // name or saved project mapping — the same approach Departments uses. Projects
+  // previously counted ONLY from the legacy employees table, so every project
+  // showed 0 once data lived in section_records.
+  const projectCounts: Record<string, number> = {};
+  (projects || []).forEach((p: any) => { projectCounts[p.id] = 0; });
+  const projResolver: Record<string, string> = {};
+  (projects || []).forEach((p: any) => {
+    if (p.project_name) projResolver[String(p.project_name).trim().toLowerCase()] = p.id;
+    if (p.project_code) projResolver[String(p.project_code).trim().toLowerCase()] = p.id;
+  });
+  (projMappings || []).forEach((m: any) => { if (m.mapped_id) projResolver[String(m.excel_value).trim().toLowerCase()] = m.mapped_id; });
+
+  const countProjectIn = async (sectionKey: string, fieldConfigs: any[]) => {
+    const pf = (fieldConfigs || []).find((f: any) => f.links_to === 'project');
+    if (!pf) return;
+    let from = 0;
+    for (;;) {
+      const { data: recs } = await supabase.from('section_records')
+        .select('data').eq('company_id', companyId).eq('section_key', sectionKey).range(from, from + 999);
+      if (!recs || recs.length === 0) break;
+      recs.forEach((r: any) => {
+        const v = r.data?.[pf.field_key];
+        if (!v) return;
+        const id = projResolver[String(v).trim().toLowerCase()];
+        if (id && projectCounts[id] !== undefined) projectCounts[id]++;
+      });
+      if (recs.length < 1000) break;
+      from += 1000;
+    }
+  };
+  await countProjectIn('employee', empFields || []);
+  await countProjectIn('candidate', candFields || []);
+
   return (
     <Shell current="/settings/operations" profile={profile} sections={sections || []} companyId={companyId || ''}>
       <OperationsClient
@@ -68,6 +104,7 @@ export default async function OperationsSettingsPage() {
         initialProjects={projects || []}
         employeeCounts={legacyEmpCounts || []}
         countryCounts={countryCounts}
+        projectCounts={projectCounts}
         companyId={companyId || ''}
       />
     </Shell>

@@ -41,6 +41,7 @@ const ICON_MAP: Record<string, any> = {
 const ADMIN_NAV = [
   { href: '/settings/operations', label: 'Countries & Projects', icon: 'globe', superOnly: false },
   { href: '/settings/departments', label: 'Departments', icon: 'settings', superOnly: false },
+  { href: '/settings/companies', label: 'Companies', icon: 'settings', superOnly: false },
   { href: '/settings/agencies', label: 'Agencies', icon: 'building', superOnly: false },
   { href: '/settings/roles', label: 'Roles & Users', icon: 'users', superOnly: true },
   { href: '/settings/approvals', label: 'Approval Workflows', icon: 'branch', superOnly: true },
