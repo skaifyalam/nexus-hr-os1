@@ -8,8 +8,8 @@ import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
 import { createClient } from '@/lib/supabase/client';
 
-export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], countries = [], projects = [], entityMappings = [], companyId, userEmail = '' }: {
-  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; countries?: any[]; projects?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
+export default function UniversalSection({ section, initialFields, initialRecords, initialStageFlows = [], remobs = [], agencies = [], departments = [], countries = [], projects = [], subCompanies = [], entityMappings = [], companyId, userEmail = '' }: {
+  section: any; initialFields: any[]; initialRecords: any[]; initialStageFlows?: any[]; remobs?: any[]; agencies?: any[]; departments?: any[]; countries?: any[]; projects?: any[]; subCompanies?: any[]; entityMappings?: any[]; companyId: string; userEmail?: string;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [records, setRecords] = useState(initialRecords);
@@ -39,6 +39,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [deptList, setDeptList] = useState<any[]>(departments);
   const [countryList, setCountryList] = useState<any[]>(countries);
   const [projectList, setProjectList] = useState<any[]>(projects);
+  const [subCompanyList, setSubCompanyList] = useState<any[]>(subCompanies);
   const [mappings, setMappings] = useState<any[]>(entityMappings);
   // Keep the last imported records so after mapping one entity type we can
   // re-check the next one (agency first, then department, ...).
@@ -411,6 +412,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
     department: { label: 'department', plural: 'departments', table: 'departments', list: deptList, setList: setDeptList, makeRow: (name: string) => ({ company_id: companyId, name }) },
     country: { label: 'country operation', plural: 'country operations', table: 'operations', noCreate: true, list: countryList, setList: setCountryList, makeRow: (name: string) => ({ company_id: companyId, name }) },
     project: { label: 'project', plural: 'projects', table: 'projects', nameCol: 'project_name', list: projectList, setList: setProjectList, makeRow: (name: string) => ({ company_id: companyId, project_name: name }) },
+    company: { label: 'company', plural: 'companies', table: 'sub_companies', list: subCompanyList, setList: setSubCompanyList, makeRow: (name: string) => ({ company_id: companyId, name }) },
   };
 
   // Check imported records for link-column values we don't recognise, one entity
