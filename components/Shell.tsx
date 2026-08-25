@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, Briefcase, GitBranch, Building2,
   User, LogOut, Globe, Hash, UserCog, Settings, Brain,
-  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award, FileText, ShieldAlert, MessageSquareWarning,
+  BarChart3, Presentation, Plus, X, Folder, Check, Loader, Layout, TrendingUp, ChevronsUpDown, Palmtree, CreditCard, GripVertical, Edit2, Clock, Award, FileText, ShieldAlert, MessageSquareWarning, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Assistant from './Assistant';
@@ -70,6 +70,9 @@ export default function Shell({
   const [newCoOpen, setNewCoOpen] = useState(false);
   const [newCoName, setNewCoName] = useState('');
   const [switching, setSwitching] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteErr, setDeleteErr] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -86,6 +89,17 @@ export default function Shell({
     const { data: ok } = await supabase.rpc('switch_company', { target_company_id: targetId });
     if (ok) window.location.href = '/dashboard';
     else setSwitching(false);
+  };
+
+  const deleteCompany = async () => {
+    if (!deleteTarget) return;
+    if (deleteConfirmText !== deleteTarget.name) { setDeleteErr('The name does not match.'); return; }
+    setSwitching(true);
+    setDeleteErr('');
+    const { data: ok, error } = await supabase.rpc('delete_company', { target_company_id: deleteTarget.id });
+    if (error) { setDeleteErr(error.message); setSwitching(false); return; }
+    if (!ok) { setDeleteErr('Delete was refused. You can only delete a company you are a super admin of and are not currently using.'); setSwitching(false); return; }
+    window.location.href = '/dashboard';
   };
 
   const [createErr, setCreateErr] = useState('');
@@ -477,14 +491,25 @@ export default function Shell({
               </button>
               {switcherOpen && (
                 <div className="absolute bottom-full mb-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden z-50">
-                  {memberships.map((m: any) => (
-                    <button key={m.company_id} onClick={() => switchCompany(m.company_id)} disabled={switching}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-slate-50 ${m.company_id === companyId ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-600'}`}>
-                      <Building2 size={12} className="flex-shrink-0" />
-                      <span className="truncate">{m.company_profile?.name || 'Unnamed'}</span>
-                      {m.company_id === companyId && <Check size={12} className="ml-auto flex-shrink-0" />}
-                    </button>
-                  ))}
+                  {memberships.map((m: any) => {
+                    const active = m.company_id === companyId;
+                    return (
+                      <div key={m.company_id} className={`group flex items-center ${active ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
+                        <button onClick={() => switchCompany(m.company_id)} disabled={switching}
+                          className={`flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-xs text-left ${active ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}>
+                          <Building2 size={12} className="flex-shrink-0" />
+                          <span className="truncate">{m.company_profile?.name || 'Unnamed'}</span>
+                          {active && <Check size={12} className="ml-auto flex-shrink-0" />}
+                        </button>
+                        {isSuperAdmin && !active && memberships.length > 1 && (
+                          <button onClick={() => { setSwitcherOpen(false); setDeleteConfirmText(''); setDeleteErr(''); setDeleteTarget({ id: m.company_id, name: m.company_profile?.name || 'Unnamed' }); }}
+                            title="Delete company" className="flex-shrink-0 px-2.5 py-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                   {isSuperAdmin && (
                     <button onClick={() => { setSwitcherOpen(false); setNewCoOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 font-medium">
                       <Plus size={12} />New Company
@@ -527,6 +552,31 @@ export default function Shell({
               <button onClick={() => setNewCoOpen(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
               <button onClick={createCompany} disabled={switching || !newCoName.trim()} className="px-4 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
                 {switching ? 'Creating…' : 'Create & Switch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Company modal — destructive, typed confirmation */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDeleteTarget(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0"><AlertTriangle size={15} className="text-red-600" /></div>
+              <h2 className="text-base font-semibold text-slate-900">Delete company</h2>
+            </div>
+            <p className="text-xs text-slate-500 mb-1">This permanently deletes <span className="font-semibold text-slate-700">{deleteTarget.name}</span> and every record inside it — employees, candidates, leave, documents, structure, and settings. This <span className="font-semibold text-red-600">cannot be undone</span>.</p>
+            <p className="text-xs text-slate-500 mb-3">Type <span className="font-mono font-semibold text-slate-700">{deleteTarget.name}</span> to confirm.</p>
+            <input value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)} placeholder="Company name" autoFocus
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-red-500" />
+            {deleteErr && <p className="text-xs text-red-500 mb-3">{deleteErr}</p>}
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-700">Cancel</button>
+              <button onClick={deleteCompany} disabled={switching || deleteConfirmText !== deleteTarget.name}
+                className="px-4 py-2.5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-40">
+                {switching ? 'Deleting…' : 'Delete forever'}
               </button>
             </div>
           </div>
