@@ -9,10 +9,10 @@
 --
 -- Data cleanup: almost every table references company_profile with
 -- ON DELETE CASCADE, so deleting the company_profile row removes its data
--- automatically. The ONLY exceptions are `profiles` and `candidates`
--- (plain REFERENCES, no cascade), so we clear those explicitly first,
--- inside the same transaction. Candidate child tables all cascade from
--- candidates(id), so deleting candidates is sufficient.
+-- automatically. The only live non-cascading reference is `profiles`, which
+-- we NULL out first. (A `candidates` table also referenced company_profile
+-- without cascade, but it was dropped in migration 32 for the universal
+-- engine; we still clear it defensively IF it exists, for older databases.)
 
 CREATE OR REPLACE FUNCTION public.delete_company(target_company_id UUID)
 RETURNS BOOLEAN AS $$
@@ -45,9 +45,17 @@ BEGIN
   SELECT COUNT(*) INTO v_count FROM company_memberships WHERE user_id = v_user;
   IF v_count <= 1 THEN RETURN FALSE; END IF;
 
-  -- Clear the two non-cascading references, then delete (rest cascades).
-  DELETE FROM candidates WHERE company_id = target_company_id::UUID;
+  -- Clear the non-cascading reference that always exists (core table).
   UPDATE profiles SET company_id = NULL WHERE company_id = target_company_id::UUID;
+
+  -- Legacy safety: the physical `candidates` table was dropped in migration 32
+  -- (replaced by the universal engine). Only touch it if it still exists on
+  -- this database, so the function is safe regardless of migration state.
+  IF to_regclass('public.candidates') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM candidates WHERE company_id = $1' USING target_company_id::UUID;
+  END IF;
+
+  -- Delete the company (all remaining child data cascades).
   DELETE FROM company_profile WHERE id = target_company_id::UUID;
 
   RETURN TRUE;
