@@ -95,7 +95,7 @@ export default function CompaniesClient({
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-slate-700">Company Name</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. NBTC Contracting"
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Contracting"
                 className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             {error && <p className="text-xs text-red-500 mt-2">{error}</p>}

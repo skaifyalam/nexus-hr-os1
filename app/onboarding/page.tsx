@@ -203,7 +203,7 @@ export default function OnboardingPage() {
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">Company Name <span className="text-red-500">*</span></label>
-                  <input value={info.name} onChange={e => setInfo({ ...info, name: e.target.value })} placeholder="e.g. NBTC Group" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input value={info.name} onChange={e => setInfo({ ...info, name: e.target.value })} placeholder="e.g. Acme Group" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">Industry <span className="text-red-500">*</span></label>

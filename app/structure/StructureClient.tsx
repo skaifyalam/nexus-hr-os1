@@ -149,7 +149,7 @@ export default function StructureClient({ initialNodes, companyId }: { initialNo
             {roots.map(r => <NodeCard key={r.id} node={r} depth={0} />)}
             {addingUnder === 'root' && (
               <div className="flex gap-2 items-center">
-                <input value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNode()} autoFocus placeholder="e.g. NBTC Group"
+                <input value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNode()} autoFocus placeholder="e.g. Acme Group"
                   className="flex-1 max-w-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <select value={newType} onChange={e => setNewType(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white">
                   {NODE_TYPES.map(nt => <option key={nt.v} value={nt.v}>{nt.label}</option>)}

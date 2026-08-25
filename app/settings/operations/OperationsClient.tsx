@@ -47,17 +47,17 @@ export default function OperationsClient({
   };
 
   // ─── PROJECTS ───────────────────────────────────────────────
-  const openAddProj = () => { setProjForm({ operation_id: operations[0]?.id || '', project_code: '', project_name: '', client: '' }); setProjModal({ open: true, editing: null }); setError(''); };
+  const openAddProj = () => { setProjForm({ operation_id: '', project_code: '', project_name: '', client: '' }); setProjModal({ open: true, editing: null }); setError(''); };
   const openEditProj = (p: any) => { setProjForm({ operation_id: p.operation_id, project_code: p.project_code || '', project_name: p.project_name || '', client: p.client || '' }); setProjModal({ open: true, editing: p.id }); setError(''); };
 
   const saveProj = async () => {
-    if (!projForm.project_name.trim() || !projForm.operation_id) { setError('Project name and country are required.'); return; }
+    if (!projForm.project_name.trim()) { setError('Project name is required.'); return; }
     if (projModal.editing) {
-      const { data, error } = await supabase.from('projects').update(projForm).eq('id', projModal.editing).select().single();
+      const { data, error } = await supabase.from('projects').update({ ...projForm, operation_id: projForm.operation_id || null }).eq('id', projModal.editing).select().single();
       if (error) { setError(error.message); return; }
       setProjects((p) => p.map((x) => (x.id === projModal.editing ? data : x)));
     } else {
-      const { data, error } = await supabase.from('projects').insert({ ...projForm, company_id: companyId }).select().single();
+      const { data, error } = await supabase.from('projects').insert({ ...projForm, operation_id: projForm.operation_id || null, company_id: companyId }).select().single();
       if (error) { setError(error.message); return; }
       setProjects((p) => [...p, data]);
     }
@@ -128,7 +128,7 @@ export default function OperationsClient({
               <Briefcase size={15} className="text-violet-600" />
               <h3 className="text-sm font-semibold text-slate-900">Projects</h3>
             </div>
-            <button onClick={openAddProj} disabled={operations.length === 0} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40">
+            <button onClick={openAddProj} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40">
               <Plus size={12} /> Add Project
             </button>
           </div>
@@ -192,8 +192,9 @@ export default function OperationsClient({
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Country</label>
+                <label className="text-sm font-medium text-slate-700">Country Operation (optional)</label>
                 <select value={projForm.operation_id} onChange={(e) => setProjForm({ ...projForm, operation_id: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">— None (link later) —</option>
                   {operations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
               </div>
