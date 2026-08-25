@@ -55,7 +55,7 @@ export default function WelcomeGuide({ sections, hasData, companyName }: {
       <h2 className="text-xl font-bold mb-1">Welcome{companyName ? `, ${companyName}` : ''} 👋</h2>
       <p className="text-sm text-white/80 mb-5 max-w-lg">Your workspace is empty and ready. The fastest way to see Naibus come alive is to upload one Excel file — everything builds from your own data.</p>
 
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className={`grid ${steps.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-3`}>
         {steps.map((s, i) => (
           <Link key={i} href={s.href} className="group bg-white rounded-xl p-4 text-slate-900 hover:shadow-lg transition-all">
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.color}`}>
