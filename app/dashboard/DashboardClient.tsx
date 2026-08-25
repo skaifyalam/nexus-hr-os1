@@ -45,6 +45,13 @@ export default function DashboardClient({ initialWidgets, sections, allFields, a
   const [data, setData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+
+  // The dashboard Welcome card ("Add a widget") fires this event; open the modal.
+  useEffect(() => {
+    const open = () => setAddOpen(true);
+    window.addEventListener('naibus:add-widget', open);
+    return () => window.removeEventListener('naibus:add-widget', open);
+  }, []);
   const supabase = createClient();
 
   // Widget builder form

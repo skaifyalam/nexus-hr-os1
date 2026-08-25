@@ -39,6 +39,7 @@ export default function WelcomeGuide({ sections, hasData, companyName }: {
       href: '/dashboard',
       cta: 'Add a widget',
       color: 'bg-emerald-50 text-emerald-600',
+      action: 'addWidget',
     },
   ].filter(s => !s.hide);
 
@@ -56,18 +57,24 @@ export default function WelcomeGuide({ sections, hasData, companyName }: {
       <p className="text-sm text-white/80 mb-5 max-w-lg">Your workspace is empty and ready. The fastest way to see Naibus come alive is to upload one Excel file — everything builds from your own data.</p>
 
       <div className={`grid ${steps.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-3`}>
-        {steps.map((s, i) => (
-          <Link key={i} href={s.href} className="group bg-white rounded-xl p-4 text-slate-900 hover:shadow-lg transition-all">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.color}`}>
-              <s.icon size={17} />
-            </div>
-            <p className="text-sm font-semibold mb-1">{s.title}</p>
-            <p className="text-xs text-slate-500 leading-relaxed mb-3">{s.desc}</p>
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 group-hover:gap-2 transition-all">
-              {s.cta} <ArrowRight size={12} />
-            </span>
-          </Link>
-        ))}
+        {steps.map((s: any, i) => {
+          const inner = (
+            <>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.color}`}>
+                <s.icon size={17} />
+              </div>
+              <p className="text-sm font-semibold mb-1">{s.title}</p>
+              <p className="text-xs text-slate-500 leading-relaxed mb-3">{s.desc}</p>
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 group-hover:gap-2 transition-all">
+                {s.cta} <ArrowRight size={12} />
+              </span>
+            </>
+          );
+          const cls = "group bg-white rounded-xl p-4 text-slate-900 hover:shadow-lg transition-all text-left w-full";
+          return s.action === 'addWidget'
+            ? <button key={i} onClick={() => window.dispatchEvent(new CustomEvent('naibus:add-widget'))} className={cls}>{inner}</button>
+            : <Link key={i} href={s.href} className={cls}>{inner}</Link>;
+        })}
       </div>
     </div>
   );
