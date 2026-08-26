@@ -1,24 +1,15 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, ChevronRight, ChevronLeft, Loader, Plus, X, Building2, Users, Globe, Settings, GitBranch, Calendar, TrendingUp, AlertTriangle, DoorOpen } from 'lucide-react';
+import { Check, ChevronRight, ChevronLeft, Loader } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 export const dynamic = 'force-dynamic';
 
-const MODULES = [
-  { key: 'recruitment', label: 'Recruitment Pipeline', desc: 'Track candidates from Selection to Onboarded across 13 GCC mobilization stages', icon: GitBranch, recommended: ['epc','oil','construction','contracting'] },
-  { key: 'leave', label: 'Leave Management', desc: 'Leave requests, approvals, and balance tracking', icon: Calendar, recommended: [] },
-  { key: 'performance', label: 'Performance Management', desc: 'KPI setting, reviews, and AI-generated summaries', icon: TrendingUp, recommended: [] },
-  { key: 'disciplinary', label: 'Disciplinary & Grievance', desc: 'Incident logging, warning letters, hearings', icon: AlertTriangle, recommended: [] },
-  { key: 'exit', label: 'Exit Management', desc: 'Resignations, clearances, and final settlements', icon: DoorOpen, recommended: [] },
-];
-
 const INDUSTRIES = ['EPC / Engineering', 'Oil & Gas', 'Construction', 'Contracting', 'Manufacturing', 'Retail', 'Healthcare', 'Finance', 'Technology', 'Other'];
 const SIZES = ['1–50', '51–200', '201–1000', '1000+'];
-const COUNTRIES = ['Saudi Arabia', 'Kuwait', 'UAE', 'Qatar', 'Bahrain', 'Oman', 'Other'];
 
-const STEPS = ['Company Info', 'Countries', 'Modules', 'Custom Sections', 'Done'];
+const STEPS = ['Company Info', 'Done'];
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -27,18 +18,11 @@ export default function OnboardingPage() {
   const [saving, setSaving] = useState(false);
 
   const [info, setInfo] = useState({ name: '', industry: '', size: '' });
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [otherCountry, setOtherCountry] = useState('');
-  const [selectedModules, setSelectedModules] = useState<string[]>(['recruitment']);
-  const [customSections, setCustomSections] = useState<{ name: string }[]>([]);
-  const [newSection, setNewSection] = useState('');
   const [finishError, setFinishError] = useState('');
   const [isNewCompany, setIsNewCompany] = useState(false);
 
-  // Determine the flow:
-  // - "?new=1&name=X"  → user is creating an ADDITIONAL company (from the switcher).
-  //   Pre-fill the name from the URL; the company is created only on Finish.
-  // - otherwise        → first-time signup with no company yet; wizard creates on Finish.
+  // "?new=1&name=X" → creating an ADDITIONAL company from the switcher (pre-fill name).
+  // Otherwise → first-time signup naming the company that was auto-created on signup.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -50,18 +34,8 @@ export default function OnboardingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleCountry = (c: string) => setSelectedCountries(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c]);
-  const toggleModule = (k: string) => setSelectedModules(p => p.includes(k) ? p.filter(x => x !== k) : [...p, k]);
-
-  const addSection = () => {
-    if (!newSection.trim()) return;
-    setCustomSections(p => [...p, { name: newSection.trim() }]);
-    setNewSection('');
-  };
-
   const canNext = () => {
     if (step === 0) return info.name.trim() && info.industry && info.size;
-    if (step === 1) return selectedCountries.length > 0;
     return true;
   };
 
@@ -74,76 +48,42 @@ export default function OnboardingPage() {
 
       const { data: existingProfile } = await supabase
         .from('profiles').select('company_id').eq('id', user.id).single();
-
       let companyId = existingProfile?.company_id;
 
-      // Creating an ADDITIONAL company (from the switcher): always make a new one
-      // and switch to it, regardless of any existing company.
       if (isNewCompany) {
+        // Additional company from the switcher: create + switch, then fill details.
         const { data: newId, error: rpcError } = await supabase.rpc('create_additional_company', { p_name: info.name });
         if (rpcError || !newId) {
           setFinishError(`Company creation failed: ${rpcError?.message || 'unknown error'}. Make sure the multi-company SQL has been run.`);
-          setSaving(false);
-          return;
+          setSaving(false); return;
         }
         companyId = newId;
         await supabase.rpc('switch_company', { target_company_id: newId });
-        // Fill in the details the wizard collected
-        await supabase.from('company_profile').update({
-          industry: info.industry,
-          size_range: info.size,
-          headquarters_country: selectedCountries[0] || '',
-          onboarding_complete: true,
+        const { error: updErr } = await supabase.from('company_profile').update({
+          industry: info.industry, size_range: info.size, onboarding_complete: true,
         }).eq('id', newId);
+        if (updErr) { setFinishError(`Could not save company details: ${updErr.message}`); setSaving(false); return; }
       } else if (!companyId) {
+        // No company yet — create one and link it to the profile.
         const { data: company, error: companyError } = await supabase
           .from('company_profile').insert({
-            name: info.name,
-            industry: info.industry,
-            size_range: info.size,
-            headquarters_country: selectedCountries[0] || '',
-            onboarding_complete: true,
+            name: info.name, industry: info.industry, size_range: info.size, onboarding_complete: true,
           }).select().single();
-
         if (companyError || !company) {
           setFinishError(`Company setup failed: ${companyError?.message || 'unknown error'}`);
-          setSaving(false);
-          return;
+          setSaving(false); return;
         }
         companyId = company.id;
         const { error: profileError } = await supabase
           .from('profiles').update({ company_id: companyId }).eq('id', user.id);
-        if (profileError) {
-          setFinishError(`Profile link failed: ${profileError.message}`);
-          setSaving(false);
-          return;
-        }
+        if (profileError) { setFinishError(`Profile link failed: ${profileError.message}`); setSaving(false); return; }
       } else {
-        await supabase.from('company_profile').update({
-          name: info.name, industry: info.industry,
-          size_range: info.size, headquarters_country: selectedCountries[0] || '',
-          onboarding_complete: true,
+        // Normal first-run: name the company that was auto-created on signup.
+        // Error is surfaced (not swallowed) so a failed save is never silent.
+        const { error: updErr } = await supabase.from('company_profile').update({
+          name: info.name, industry: info.industry, size_range: info.size, onboarding_complete: true,
         }).eq('id', companyId);
-      }
-
-      // Install selected modules
-      if (selectedModules.length > 0) {
-        const rows = selectedModules.map((key, i) => ({
-          company_id: companyId, module_key: key,
-          label: MODULES.find(m => m.key === key)?.label || key,
-          sidebar_order: i + 10,
-        }));
-        const { error: modError } = await supabase.from('installed_modules').insert(rows);
-        if (modError) console.warn('Modules:', modError.message);
-      }
-
-      // Create custom sections
-      for (let i = 0; i < customSections.length; i++) {
-        const { error: secError } = await supabase.from('custom_sections').insert({
-          company_id: companyId, name: customSections[i].name,
-          icon: 'folder', sidebar_order: 50 + i,
-        });
-        if (secError) console.warn('Section:', secError.message);
+        if (updErr) { setFinishError(`Could not save company details: ${updErr.message}`); setSaving(false); return; }
       }
 
       router.push('/dashboard');
@@ -198,7 +138,7 @@ export default function OnboardingPage() {
             <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Tell us about your company</h2>
-                <p className="text-sm text-slate-500 mt-0.5">This sets up your workspace</p>
+                <p className="text-sm text-slate-500 mt-0.5">Just the basics — you'll add your data next</p>
               </div>
               <div className="space-y-3">
                 <div className="space-y-1.5">
@@ -226,150 +166,42 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {/* Step 1: Countries */}
+          {/* Step 1: Done */}
           {step === 1 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Where do you operate?</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Select all countries — HR staff will be scoped to their country</p>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {COUNTRIES.filter(c => c !== 'Other').map(c => (
-                  <button key={c} onClick={() => toggleCountry(c)} className={`flex items-center justify-between p-3 rounded-xl border text-sm text-left transition-colors ${selectedCountries.includes(c) ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-indigo-200'}`}>
-                    {c}
-                    {selectedCountries.includes(c) && <Check size={14} className="text-indigo-600" />}
-                  </button>
-                ))}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">Other country (optional)</label>
-                <input value={otherCountry} onChange={e => setOtherCountry(e.target.value)} placeholder="e.g. Pakistan" className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Modules */}
-          {step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Which modules do you need?</h2>
-                <p className="text-sm text-slate-500 mt-0.5">You can always add or remove these later from Settings</p>
-              </div>
-              <div className="space-y-2">
-                {MODULES.map(m => {
-                  const isRec = m.recommended.some(r => info.industry.toLowerCase().includes(r));
-                  return (
-                    <button key={m.key} onClick={() => toggleModule(m.key)} className={`w-full flex items-start gap-3 p-3.5 rounded-xl border text-left transition-colors ${selectedModules.includes(m.key) ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-50 border-slate-200 hover:border-indigo-200'}`}>
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${selectedModules.includes(m.key) ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-400'}`}>
-                        <m.icon size={15} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-slate-800">{m.label}</p>
-                          {isRec && <span className="text-xs px-1.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-full">Recommended</span>}
-                        </div>
-                        <p className="text-xs text-slate-400 mt-0.5">{m.desc}</p>
-                      </div>
-                      {selectedModules.includes(m.key) && <Check size={15} className="text-indigo-600 flex-shrink-0 mt-0.5" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Custom Sections */}
-          {step === 3 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Any custom sections?</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Add any section that doesn't fit the standard modules — you define the fields yourself</p>
-              </div>
-              <div className="space-y-2 mb-2">
-                {[
-                  { name: 'Subcontractors', hint: 'Track subcontractor companies and contacts' },
-                  { name: 'HSE Inspections', hint: 'Health, safety, and environment records' },
-                  { name: 'Assets & Equipment', hint: 'Company vehicles, tools, equipment' },
-                  { name: 'Training Records', hint: 'Certifications and training history' },
-                ].map(suggestion => {
-                  const selected = !!customSections.find(s => s.name === suggestion.name);
-                  return (
-                    <button key={suggestion.name} onClick={() => {
-                      if (selected) {
-                        setCustomSections(p => p.filter(s => s.name !== suggestion.name));
-                      } else {
-                        setCustomSections(p => [...p, { name: suggestion.name }]);
-                      }
-                    }} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left text-sm transition-colors ${selected ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-200'}`}>
-                      <div>
-                        <p className="font-medium">{suggestion.name}</p>
-                        <p className="text-xs text-slate-400">{suggestion.hint}</p>
-                      </div>
-                      {selected ? <Check size={14} className="text-indigo-600 flex-shrink-0" /> : <Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-              {customSections
-                .filter(s => !['Subcontractors','HSE Inspections','Assets & Equipment','Training Records'].includes(s.name))
-                .map((cs, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
-                    <span className="text-sm text-indigo-700">{cs.name}</span>
-                    <button onClick={() => setCustomSections(p => p.filter(s => s.name !== cs.name))} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
-                  </div>
-                ))}
-              <div className="flex gap-2">
-                <input value={newSection} onChange={e => setNewSection(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSection()} placeholder="Add your own section…" className="flex-1 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                <button onClick={addSection} disabled={!newSection.trim()} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 disabled:opacity-40"><Plus size={16} /></button>
-              </div>
-              <p className="text-xs text-slate-400">You can also add more sections any time from the sidebar</p>
-            </div>
-          )}
-
-          {/* Step 4: Done */}
-          {step === 4 && (
             <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
               <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center">
                 <Check size={28} className="text-white" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-slate-900">{info.name} is ready</h2>
-                <p className="text-sm text-slate-500 mt-1">Your Naibus platform is configured and ready to use</p>
+                <p className="text-sm text-slate-500 mt-1">Your workspace is set up. Add your data whenever you're ready.</p>
               </div>
               <div className="w-full bg-slate-50 rounded-xl p-4 text-left space-y-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Your setup</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Your company</p>
                 <div className="text-sm text-slate-700 space-y-1">
                   <p>🏢 <span className="font-medium">{info.name}</span> · {info.industry} · {info.size} employees</p>
-                  <p>🌍 {selectedCountries.join(', ')}{otherCountry ? `, ${otherCountry}` : ''}</p>
-                  <p>📦 {selectedModules.length} module{selectedModules.length !== 1 ? 's' : ''} installed</p>
-                  {customSections.length > 0 && <p>🗂 {customSections.length} custom section{customSections.length !== 1 ? 's' : ''}: {customSections.map(s => s.name).join(', ')}</p>}
                 </div>
               </div>
+              <p className="text-xs text-slate-400">Add countries, departments, and sections any time from the sidebar and Admin settings.</p>
             </div>
           )}
         </div>
 
         {/* Footer nav */}
         <div className="flex items-center justify-between px-8 py-5 border-t border-slate-100">
-          {step > 0 && step < 4 ? (
+          {step > 0 ? (
             <button onClick={() => setStep(s => s - 1)} className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900 transition-colors">
               <ChevronLeft size={15} /> Back
             </button>
           ) : <div />}
 
-          {step < 3 && (
-            <button onClick={() => setStep(s => s + 1)} disabled={!canNext()} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-colors">
-              Next <ChevronRight size={15} />
+          {step === 0 && (
+            <button onClick={() => setStep(1)} disabled={!canNext()} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-colors">
+              Continue <ChevronRight size={15} />
             </button>
           )}
 
-          {step === 3 && (
-            <button onClick={() => setStep(4)} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700">
-              Review Setup <ChevronRight size={15} />
-            </button>
-          )}
-
-          {step === 4 && (
+          {step === 1 && (
             <button onClick={finish} disabled={saving} className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50">
               {saving ? <><Loader size={14} className="animate-spin" /> Setting up…</> : <>Launch Naibus <ChevronRight size={15} /></>}
             </button>

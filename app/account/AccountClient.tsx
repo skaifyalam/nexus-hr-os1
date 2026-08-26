@@ -19,6 +19,7 @@ export default function AccountClient({ profile, isSuper, subscription, employee
   const [pwSaving, setPwSaving] = useState(false);
 
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteMsg, setDeleteMsg] = useState('');
 
@@ -151,10 +152,13 @@ export default function AccountClient({ profile, isSuper, subscription, employee
           {!confirmDelete ? (
             <button onClick={() => setConfirmDelete(true)} className="px-4 py-2.5 text-sm font-medium bg-white border border-red-200 text-red-600 rounded-xl hover:bg-red-50">Delete my account</button>
           ) : (
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-red-600">Are you sure? This is permanent.</span>
-              <button onClick={deleteAccount} disabled={deleting} className="px-4 py-2.5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50">{deleting ? 'Deleting…' : 'Yes, delete permanently'}</button>
-              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-600">Cancel</button>
+            <div className="space-y-3">
+              <p className="text-xs text-red-600">This is permanent. To confirm, type your email <span className="font-mono font-semibold text-red-700">{profile.email}</span> below.</p>
+              <input value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)} placeholder="Type your email to confirm" autoFocus className="w-full max-w-sm border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <div className="flex items-center gap-3">
+                <button onClick={deleteAccount} disabled={deleting || deleteConfirmText !== profile.email} className="px-4 py-2.5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-40">{deleting ? 'Deleting…' : 'Delete permanently'}</button>
+                <button onClick={() => { setConfirmDelete(false); setDeleteConfirmText(''); }} className="px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl text-slate-600">Cancel</button>
+              </div>
             </div>
           )}
           {deleteMsg && <p className="text-xs text-red-500 mt-2">{deleteMsg}</p>}
