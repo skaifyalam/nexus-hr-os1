@@ -439,6 +439,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const cfg = linkEntityConfig[entityType];
       const linkField = activeFields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
+      // Curated entities (country operations) are never created from a file, and
+      // there's nothing to link to until the user creates some. Skip prompting on
+      // an empty list — the raw value still imports into the row unchanged.
+      if (cfg.noCreate && cfg.list.length === 0) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
       const mapped = mappedKeysFor(entityType, cfg.list);
       const unknowns = new Set<string>();
@@ -473,6 +477,9 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const cfg = linkEntityConfig[entityType];
       const linkField = fields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
+      // Don't nag about curated entities until the user has created some to link
+      // to; the raw value is preserved in the record regardless.
+      if (cfg.noCreate && cfg.list.length === 0) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
       const mapped = mappedKeysFor(entityType, cfg.list);
       const unknowns = new Set<string>();
@@ -659,6 +666,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
       const cfg = linkEntityConfig[entityType];
       const linkField = fields.find((f: any) => f.links_to === entityType);
       if (!linkField) continue;
+      if (cfg.noCreate && cfg.list.length === 0) continue;
       const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
       const mapped = mappedKeysFor(entityType, cfg.list);
       const unknowns = new Set<string>();
@@ -787,7 +795,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
     if (cfg) {
       const updatedFields = fields.map(f => f.id === editFieldId ? { ...f, links_to: efLinksTo } : f);
       const linkField = updatedFields.find((f: any) => f.links_to === efLinksTo);
-      if (linkField) {
+      if (linkField && !(cfg.noCreate && cfg.list.length === 0)) {
         const knownNames = new Set(cfg.list.map((a: any) => String(a.name).trim().toLowerCase()));
         const mapped = mappedKeysFor(efLinksTo, cfg.list);
         const unknowns = new Set<string>();
