@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Check, ChevronRight, ChevronLeft, Loader } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -12,7 +11,6 @@ const SIZES = ['1–50', '51–200', '201–1000', '1000+'];
 const STEPS = ['Company Info', 'Done'];
 
 export default function OnboardingPage() {
-  const router = useRouter();
   const supabase = createClient();
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -79,14 +77,18 @@ export default function OnboardingPage() {
         if (profileError) { setFinishError(`Profile link failed: ${profileError.message}`); setSaving(false); return; }
       } else {
         // Normal first-run: name the company that was auto-created on signup.
-        // Error is surfaced (not swallowed) so a failed save is never silent.
-        const { error: updErr } = await supabase.from('company_profile').update({
+        // .select() lets us detect a zero-row update (a silent permissions no-op),
+        // and the error is surfaced rather than swallowed.
+        const { data: updated, error: updErr } = await supabase.from('company_profile').update({
           name: info.name, industry: info.industry, size_range: info.size, onboarding_complete: true,
-        }).eq('id', companyId);
+        }).eq('id', companyId).select();
         if (updErr) { setFinishError(`Could not save company details: ${updErr.message}`); setSaving(false); return; }
+        if (!updated || updated.length === 0) { setFinishError('Save affected no rows — a permissions issue blocked the update.'); setSaving(false); return; }
       }
 
-      router.push('/dashboard');
+      // Full reload (not a soft navigation) so the sidebar re-fetches the new
+      // name from the server instead of showing a cached "My Company".
+      window.location.href = '/dashboard';
     } catch (err: any) {
       setFinishError(err.message || 'Something went wrong.');
       setSaving(false);

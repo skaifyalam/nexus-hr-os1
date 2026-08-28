@@ -42,7 +42,7 @@ export async function middleware(req: NextRequest) {
         .from('company_profile')
         .select('onboarding_complete')
         .eq('id', profile.company_id)
-        .single();
+        .maybeSingle();
       if (company && !company.onboarding_complete) {
         return NextResponse.redirect(new URL('/onboarding', req.url));
       }
