@@ -1,8 +1,8 @@
 'use client';
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Plus, X, Search, Upload, Loader, Download, LayoutGrid, Table2,
-  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock, User, RotateCcw,
+  Settings, Sparkles, Check, Trash2, Edit2, FileSpreadsheet, GitBranch, Clock, User, RotateCcw, UserCheck,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { startApproval } from '@/lib/approvals';
@@ -18,6 +18,10 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
+  // Recruitment → Employee promotion (only used on the employee section)
+  const [pendingHires, setPendingHires] = useState<any[]>([]);
+  const [candidateFields, setCandidateFields] = useState<any[]>([]);
+  const [promoting, setPromoting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
   // The "Review your fields" step: after upload we hold the detected fields + the
@@ -293,6 +297,68 @@ export default function UniversalSection({ section, initialFields, initialRecord
     await supabase.from('section_records').delete().eq('id', id);
     setRecords(p => p.filter(r => r.id !== id));
     setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+  };
+
+  // ── RECRUITMENT → EMPLOYEE PROMOTION ──
+  // Flag a candidate as hired. They stay in recruitment (as history); the
+  // Employee section then offers to add them to the master data.
+  const hireCandidate = async (r: any) => {
+    const ts = new Date().toISOString();
+    const { error } = await supabase.from('section_records').update({ hired_at: ts }).eq('id', r.id);
+    if (!error) setRecords(p => p.map(x => x.id === r.id ? { ...x, hired_at: ts } : x));
+  };
+
+  // On the Employee section, load candidates that are hired but not yet added,
+  // plus the candidate section's field configs (to match columns by label).
+  useEffect(() => {
+    if (section.section_key !== 'employee') return;
+    let cancelled = false;
+    (async () => {
+      const [hiresRes, cfRes] = await Promise.all([
+        supabase.from('section_records').select('*').eq('company_id', companyId)
+          .eq('section_key', 'candidate').not('hired_at', 'is', null).is('promoted_record_id', null),
+        supabase.from('section_field_configs').select('*').eq('company_id', companyId).eq('section_key', 'candidate'),
+      ]);
+      if (cancelled) return;
+      setPendingHires(hiresRes.data || []);
+      setCandidateFields(cfRes.data || []);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.section_key, companyId, records.length]);
+
+  // Create employee records from hired candidates: carry over values whose field
+  // label matches (Name, Passport, etc.), generate an EMP-ID, leave the rest blank.
+  const promoteHires = async () => {
+    if (pendingHires.length === 0 || promoting) return;
+    setPromoting(true);
+    const empIdField = fields.find((f: any) => f.is_id_field);
+    const created: any[] = [];
+    for (const cand of pendingHires) {
+      const empData: any = {};
+      fields.forEach((ef: any) => {
+        if (ef.is_id_field) return; // ID is generated, never copied over
+        const match = candidateFields.find((cf: any) =>
+          String(cf.field_label || '').trim().toLowerCase() === String(ef.field_label || '').trim().toLowerCase());
+        const v = match ? cand.data?.[match.field_key] : undefined;
+        if (v != null && v !== '') empData[ef.field_key] = v;
+      });
+      let empId = '';
+      if (empIdField) {
+        const { data: idVal } = await supabase.rpc('generate_section_id', { p_section_pk: section.id });
+        empId = idVal || '';
+        if (empId) empData[empIdField.field_key] = empId;
+      }
+      const { data: rec, error } = await supabase.from('section_records').insert({
+        company_id: companyId, section_key: 'employee', record_id: empId || null, data: empData,
+      }).select().single();
+      if (error || !rec) continue;
+      created.push(rec);
+      await supabase.from('section_records').update({ promoted_record_id: rec.id }).eq('id', cand.id);
+    }
+    if (created.length) setRecords(p => [...created, ...p]);
+    setPendingHires([]);
+    setPromoting(false);
   };
 
   const toggleSelect = (id: string) => {
@@ -1285,6 +1351,18 @@ export default function UniversalSection({ section, initialFields, initialRecord
         </div>
       </div>
 
+      {section.section_key === 'employee' && pendingHires.length > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4">
+          <div className="flex items-center gap-2 text-sm text-emerald-800">
+            <UserCheck size={16} className="text-emerald-600 flex-shrink-0" />
+            <span><span className="font-semibold">{pendingHires.length}</span> hired candidate{pendingHires.length > 1 ? 's' : ''} ready to add. Matching details (name, passport, etc.) carry over; the rest stays blank to fill in.</span>
+          </div>
+          <button onClick={promoteHires} disabled={promoting} className="flex-shrink-0 px-3.5 py-2 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+            {promoting ? 'Adding…' : `Add ${pendingHires.length} to Employees`}
+          </button>
+        </div>
+      )}
+
       {pendingLinks.length > 0 && (
         <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
           <GitBranch size={15} className="text-amber-600 flex-shrink-0" />
@@ -1389,6 +1467,11 @@ export default function UniversalSection({ section, initialFields, initialRecord
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {section.section_key === 'employee' && <a href={`/employee/${r.id}`} title="View 360 profile" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><User size={13} /></a>}
                         {stageField && <button onClick={() => openHistory(r)} title="Stage history" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><Clock size={13} /></button>}
+                        {section.section_key === 'candidate' && (r.promoted_record_id
+                          ? <span className="px-2 self-center text-[11px] font-medium text-emerald-600">Employee</span>
+                          : r.hired_at
+                            ? <span className="px-2 self-center text-[11px] font-medium text-amber-600">Hired</span>
+                            : <button onClick={() => hireCandidate(r)} title="Hire → Move to Employees" className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600"><UserCheck size={13} /></button>)}
                         <button onClick={() => editRecord(r)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
                         <button onClick={() => deleteRecord(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
                       </div>
