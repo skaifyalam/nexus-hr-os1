@@ -1164,10 +1164,12 @@ export default function UniversalSection({ section, initialFields, initialRecord
   // First 7 fields, but ALWAYS include the stage/status field (even if it's column 11 of 24)
   const tableFields = (() => {
     const base = fields.slice(0, 7);
-    if (stageField && !base.find(f => f.id === stageField.id)) {
-      return [...fields.slice(0, 6), stageField];
-    }
-    return base;
+    let cols = (stageField && !base.find(f => f.id === stageField.id))
+      ? [...fields.slice(0, 6), stageField]
+      : base;
+    // Surface the status/stage column first so it's reachable without scrolling.
+    if (stageField) cols = [stageField, ...cols.filter(f => f.id !== stageField.id)];
+    return cols;
   })();
 
   // The review overlay must be available in BOTH render branches. It used to live
@@ -1433,14 +1435,27 @@ export default function UniversalSection({ section, initialFields, initialRecord
                 <th className="w-10 px-4 py-3">
                   <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={toggleSelectAll} className="rounded cursor-pointer" />
                 </th>
+                <th className="text-left text-xs font-medium text-slate-500 px-4 py-3">Actions</th>
                 {tableFields.map(f => <th key={f.id} className="text-left text-xs font-medium text-slate-500 px-4 py-3 whitespace-nowrap">{f.field_label}</th>)}
-                <th className="px-4 py-3" />
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
                 {paged.map(r => (
                   <tr key={r.id} className={`hover:bg-slate-50/50 group ${selected.has(r.id) ? 'bg-indigo-50/40' : ''}`}>
                     <td className="px-4 py-3">
                       <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="rounded cursor-pointer" />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {section.section_key === 'candidate' && (r.promoted_record_id
+                          ? <span className="px-2 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 rounded-md whitespace-nowrap">✓ Employee</span>
+                          : r.hired_at
+                            ? <span className="px-2 py-1 text-[11px] font-medium text-amber-700 bg-amber-50 rounded-md whitespace-nowrap">Hired</span>
+                            : <button onClick={() => hireCandidate(r)} title="Hire → Move to Employees" className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 whitespace-nowrap"><UserCheck size={12} />Hire</button>)}
+                        {section.section_key === 'employee' && <a href={`/employee/${r.id}`} title="View 360 profile" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><User size={13} /></a>}
+                        {stageField && <button onClick={() => openHistory(r)} title="Stage history" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><Clock size={13} /></button>}
+                        <button onClick={() => editRecord(r)} title="Edit" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
+                        <button onClick={() => deleteRecord(r.id)} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
+                      </div>
                     </td>
                     {tableFields.map(f => (
                       <td key={f.id} className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
@@ -1463,19 +1478,6 @@ export default function UniversalSection({ section, initialFields, initialRecord
                          : String(r.data?.[f.field_key] || '—')}
                       </td>
                     ))}
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {section.section_key === 'employee' && <a href={`/employee/${r.id}`} title="View 360 profile" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><User size={13} /></a>}
-                        {stageField && <button onClick={() => openHistory(r)} title="Stage history" className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><Clock size={13} /></button>}
-                        {section.section_key === 'candidate' && (r.promoted_record_id
-                          ? <span className="px-2 self-center text-[11px] font-medium text-emerald-600">Employee</span>
-                          : r.hired_at
-                            ? <span className="px-2 self-center text-[11px] font-medium text-amber-600">Hired</span>
-                            : <button onClick={() => hireCandidate(r)} title="Hire → Move to Employees" className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600"><UserCheck size={13} /></button>)}
-                        <button onClick={() => editRecord(r)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"><Edit2 size={13} /></button>
-                        <button onClick={() => deleteRecord(r.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={13} /></button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && <tr><td colSpan={tableFields.length + 2} className="text-center py-10 text-sm text-slate-400">No records — add one or import your Excel</td></tr>}
