@@ -58,6 +58,7 @@ export default function UniversalSection({ section, initialFields, initialRecord
   const [flowPanel, setFlowPanel] = useState(false);
   const [statusChange, setStatusChange] = useState<{ record: any; newStatus: string } | null>(null);
   const [scDate, setScDate] = useState('');
+  const [scDateField, setScDateField] = useState('');
   const [scRemarks, setScRemarks] = useState('');
   const [historyFor, setHistoryFor] = useState<any>(null);
   const [historyRows, setHistoryRows] = useState<any[]>([]);
@@ -761,6 +762,8 @@ export default function UniversalSection({ section, initialFields, initialRecord
     if (current === newStatus) return;
     setScDate(new Date().toISOString().split('T')[0]);
     setScRemarks('');
+    const existingFlow = stageFlows.find(f => f.status_value === newStatus);
+    setScDateField(existingFlow?.date_field_key || '');
     setStatusChange({ record, newStatus });
   };
 
@@ -769,46 +772,51 @@ export default function UniversalSection({ section, initialFields, initialRecord
     const { record, newStatus } = statusChange;
     const fromStatus = record.data?.[stageField.field_key] || null;
 
-    const newData = { ...record.data, [stageField.field_key]: newStatus };
-
-    // Auto-fill mapped date field if this status has one
+    // Resolve which date column to save into: the one already mapped, or the one
+    // picked just now in the modal. Either way the date gets stored on the record.
     const flow = stageFlows.find(f => f.status_value === newStatus);
-    if (flow?.date_field_key && scDate) {
-      newData[flow.date_field_key] = scDate;
-    }
-    // Append remarks to the remarks field if present
-    if (scRemarks && remarksField) {
-      newData[remarksField.field_key] = scRemarks;
-    }
+    const dateKey = flow?.date_field_key || scDateField || null;
+    const rememberMapping = !flow?.date_field_key && !!scDateField;
 
-    const { data: updated } = await supabase.from('section_records')
+    const newData: any = { ...record.data, [stageField.field_key]: newStatus };
+    if (dateKey && scDate) newData[dateKey] = scDate;
+    if (scRemarks && remarksField) newData[remarksField.field_key] = scRemarks;
+
+    const recId = record.id;
+    const recordIdStr = record.record_id || record.data?.[idField?.field_key] || '';
+    const dateVal = scDate, remarksVal = scRemarks;
+
+    // Optimistic: reflect the change and close the modal immediately, then persist
+    // in the background so the UI never waits on the network (this is the lag fix).
+    setRecords(p => p.map(r => r.id === recId ? { ...r, data: newData } : r));
+    setStatusChange(null);
+
+    supabase.from('section_records')
       .update({ data: newData, updated_at: new Date().toISOString() })
-      .eq('id', record.id).select().single();
-    if (updated) setRecords(p => p.map(r => r.id === record.id ? updated : r));
+      .eq('id', recId).then(({ error }) => { if (error) console.error('Stage save failed:', error.message); });
 
-    // Reverse visa sync: if this is a candidate and the new status maps to a visa stage,
-    // advance their visa allocation to match (fire-and-forget).
+    supabase.from('stage_history').insert({
+      company_id: companyId,
+      section_key: section.section_key,
+      record_pk: recId,
+      record_id: recordIdStr,
+      from_status: fromStatus,
+      to_status: newStatus,
+      change_date: dateVal || new Date().toISOString().split('T')[0],
+      remarks: remarksVal || null,
+      changed_by: userEmail,
+    }).then(() => {});
+
+    // Remember the picked date column for this status so it's automatic next time.
+    if (rememberMapping) saveFlow(newStatus, scDateField);
+
+    // Reverse visa sync for candidates (fire-and-forget).
     if (section.section_key === 'candidate') {
       fetch('/api/sync-visa-stage', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personRecordId: record.id, newStatus }),
+        body: JSON.stringify({ personRecordId: recId, newStatus }),
       }).catch(() => {});
     }
-
-    // Log to history
-    await supabase.from('stage_history').insert({
-      company_id: companyId,
-      section_key: section.section_key,
-      record_pk: record.id,
-      record_id: record.record_id || record.data?.[idField?.field_key] || '',
-      from_status: fromStatus,
-      to_status: newStatus,
-      change_date: scDate || new Date().toISOString().split('T')[0],
-      remarks: scRemarks || null,
-      changed_by: userEmail,
-    });
-
-    setStatusChange(null);
   };
 
   const openHistory = async (record: any) => {
@@ -1598,8 +1606,17 @@ export default function UniversalSection({ section, initialFields, initialRecord
                 {(() => {
                   const flow = stageFlows.find(f => f.status_value === statusChange.newStatus);
                   const df = flow?.date_field_key ? fields.find(f => f.field_key === flow.date_field_key) : null;
-                  return df ? <p className="text-xs text-emerald-600">Will fill: {df.field_label}</p>
-                    : <p className="text-xs text-slate-400">No date field mapped to this stage (set in Stage Flow)</p>;
+                  if (df) return <p className="text-xs text-emerald-600">Saves to: {df.field_label}</p>;
+                  if (dateFields.length === 0) return <p className="text-xs text-amber-600">No date column exists yet — add a field of type “date” in Fields to store stage dates.</p>;
+                  return (
+                    <div className="space-y-1">
+                      <select value={scDateField} onChange={e => setScDateField(e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">Save date to which column?…</option>
+                        {dateFields.map(f => <option key={f.field_key} value={f.field_key}>{f.field_label}</option>)}
+                      </select>
+                      {scDateField && <p className="text-[11px] text-slate-400">Remembered for “{statusChange.newStatus}” from now on.</p>}
+                    </div>
+                  );
                 })()}
               </div>
               <div className="space-y-1.5">
